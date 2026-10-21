@@ -1,0 +1,3 @@
+# Optional local vocal recognition; install in the same Python environment as FastAPI.
+# The first real recognition downloads the selected Whisper model if not cached.
+faster-whisper>=1.1,<2

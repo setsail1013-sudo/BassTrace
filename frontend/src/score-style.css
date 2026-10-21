@@ -1,0 +1,25 @@
+/* These selectors intentionally outrank the legacy single-color print theme. */
+.sheet .three-track-score .chord-lane .chord{color:var(--score-top,#1D4ED8)!important}
+.sheet .three-track-score .editable-lyric-track{font-size:var(--lyric-font,20px);color:var(--score-lyrics,#1D1D1F)}
+.sheet .three-track-score .editable-lyric-track .track-lyric,.sheet .three-track-score .inline-lyric-editor,.sheet .three-track-score .lyric-print-only{font-size:inherit;color:var(--score-lyrics,#1D1D1F)!important}
+.sheet .three-track-score .manual-fill-note{color:var(--score-fill,#167047)!important}
+.sheet .three-track-score .fill-technique-marks,.sheet .three-track-score .fill-dead,.sheet .three-track-score .fill-connections{color:var(--score-mark,#C62828)!important}
+.sheet .three-track-score .fill-connections path{stroke:var(--score-mark,#C62828)}
+.sheet .three-track-score .fill-connections text{fill:var(--score-mark,#C62828)}
+.sheet .three-track-score .chord:hover,.sheet .three-track-score .track-lyric:hover{text-decoration:underline;text-decoration-style:dotted;text-underline-offset:4px}
+.chart-display-menu .chart-options{width:260px!important;max-width:calc(100vw - 40px);max-height:70vh;overflow-y:auto}
+.score-appearance-controls{display:flex;flex-direction:column;gap:10px;padding:9px 5px;border-top:1px solid #eeeef1;border-bottom:1px solid #eeeef1;margin:3px 0 9px}
+.score-appearance-controls>label,.score-palette label{display:flex!important;align-items:center;justify-content:space-between;gap:10px;font-size:11px!important;line-height:1.45;color:#626268;margin:0!important}
+.score-appearance-controls>label>select,.modal .score-appearance-controls>label>select{display:block!important;flex:none;width:auto;min-width:82px;padding:6px 8px;margin:0;font-size:11px}
+.score-palette{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.score-palette label{font-size:10px!important;gap:4px}
+.score-palette input[type=color],.modal .score-palette input[type=color]{flex:none;width:32px!important;height:27px;padding:2px!important;margin:0!important;border:1px solid #e5e5ea;border-radius:5px;background:white;cursor:pointer}
+.score-appearance-controls>button{font-size:11px;text-align:left;padding:4px 0;color:#007aff}
+.chart-display-menu .chart-options select{display:block}
+@media print{
+  .app .sheet{width:var(--score-page-width,186mm)!important;max-width:none!important}
+  .sheet,.sheet *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .sheet .three-track-score .editable-lyric-track{font-size:var(--lyric-print-font,12pt)!important}
+  .sheet.score-print-mono,.sheet .score-print-mono{--score-lyrics:#000!important;--score-top:#000!important;--score-fill:#000!important;--score-mark:#000!important}
+  .sheet .three-track-score .chord:hover,.sheet .three-track-score .track-lyric:hover{text-decoration:none}
+}
