@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse, Response
 from starlette.concurrency import run_in_threadpool
 
 from . import adapters, audio, lyrics, storage
+from .accounts import AccountHTTPError, account_http_error, router as accounts_router
 from .playlists import router as playlists_router
 from .folders import router as folders_router
 from .library_transfer import router as transfer_router, recover_transfers, ArchiveUploadLimit
@@ -57,9 +58,14 @@ app.include_router(playlists_router)
 app.include_router(features_router)
 app.include_router(folders_router)
 app.include_router(transfer_router)
+app.include_router(accounts_router)
+app.add_exception_handler(AccountHTTPError, account_http_error)
 app.add_middleware(ArchiveUploadLimit)
+# Credentialed cookies are for the optional local account on 127.0.0.1 / localhost.
+# Song, playlist, folder, trash, and export routes stay usable without a session.
 app.add_middleware(CORSMiddleware, allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
-                   allow_methods=["GET", "POST", "PUT", "DELETE"], allow_headers=["*"])
+                   allow_credentials=True, allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+                   allow_headers=["*"])
 EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="basschart-analysis")
 DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 MAX_UPLOAD = 300 * 1024 * 1024
