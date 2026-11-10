@@ -266,7 +266,7 @@ function AdminList({ user, users, listError, rowError, pendingId, onBack, onChan
       const busy = pendingId === item.id;
       return <li key={item.id}>
         <div className="account-user-line">
-          <span className="account-user-name">{item.username}{item.disabled && <em>已停用</em>}{item.id === user?.id && <em>当前登录</em>}</span>
+          <span className="account-user-id"><span className="account-user-name">{item.username}</span>{(item.disabled || item.id === user?.id) && <span className="account-user-status">{item.disabled && <em>已停用</em>}{item.id === user?.id && <em>当前登录</em>}</span>}</span>
           <select aria-label={`${item.username} 的角色`} value={item.role} disabled={!!pendingId} onChange={event => onChangeUser(item.id, { role: event.target.value as AccountUser['role'] }, 'role')}>
             <option value="admin">管理员</option>
             <option value="user">普通用户</option>
