@@ -1,0 +1,14 @@
+{
+  "protocol": "basstrace-p0-eval",
+  "protocolVersion": "1",
+  "trackId": "example01",
+  "raterId": "example-rater",
+  "ratedAt": "2026-01-03T00:00:00+00:00",
+  "playback": "公式样例，不是歌曲试听",
+  "ratings": [
+    {"stem": "bass", "bleed": 5, "artifacts": 5, "missingSource": 5},
+    {"stem": "drums", "bleed": 4, "artifacts": 4, "missingSource": 4},
+    {"stem": "vocals", "bleed": 3, "artifacts": 3, "missingSource": 3},
+    {"stem": "other", "bleed": 2, "artifacts": 2, "missingSource": 2}
+  ]
+}
