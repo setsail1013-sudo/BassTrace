@@ -1,0 +1,10 @@
+{
+  "protocol": "basstrace-p0-eval",
+  "protocolVersion": "1",
+  "trackId": "example01",
+  "editorId": "example-editor",
+  "startedAt": "2026-01-01T00:00:00+00:00",
+  "finishedAt": "2026-01-01T00:01:30+00:00",
+  "durationSeconds": 90,
+  "activities": ["bpm", "chords", "lyrics", "bassPitch", "notes"]
+}
