@@ -66,10 +66,14 @@ class ScoreColors(Model):
 
 class ScoreStyle(Model):
     lyricFontSize: float = Field(default=20, ge=14, le=32)
-    lyricPrintSize: float = Field(default=12, ge=10, le=20)
+    lyricPrintSize: float = Field(default=18, ge=10, le=30)
     colors: ScoreColors = Field(default_factory=ScoreColors)
     printColor: bool = True
-    printOrientation: Literal["portrait", "landscape"] = "portrait"
+    printOrientation: Literal["portrait", "landscape"] = "landscape"
+    printPreset: Literal["large", "custom"] | None = None
+    topPrintSize: float | None = Field(default=None, ge=16, le=36)
+    fillPrintSize: float | None = Field(default=None, ge=12, le=24)
+    printBarsPerRow: Literal[2, 4] | None = None
 
 
 class Lyric(Model):
@@ -220,7 +224,7 @@ def valid_fill_connection(note: ManualFillNote, target: ManualFillNote | None) -
 
 
 class Stem(Model):
-    id: Literal["original", "bass", "drums", "vocals", "other"]
+    id: Literal["original", "bass", "drums", "vocals", "other", "backing"]
     name: str
     url: str = ""
     enhancedUrl: str | None = None
@@ -234,6 +238,42 @@ class Analysis(Model):
     stage: str = "等待分析"
     progress: float = Field(default=0, ge=0, le=100)
     warnings: list[str] = Field(default_factory=list)
+
+
+class PerformanceNotes(Model):
+    effectsPreset: str = Field(default="", max_length=10000)
+    technique: str = Field(default="", max_length=10000)
+    reminders: str = Field(default="", max_length=10000)
+    includeInExport: bool = True
+
+
+class KeyCandidate(Model):
+    key: str = Field(max_length=40)
+    score: float = Field(ge=-1, le=1)
+
+
+class KeyAnalysis(Analysis):
+    stage: str = "调性尚未识别"
+    candidates: list[KeyCandidate] = Field(default_factory=list, max_length=24)
+    detectedKey: str | None = None
+    confirmed: bool = False
+
+
+class LyricAnchor(Model):
+    id: str = Field(min_length=1, max_length=120)
+    lyricId: str = Field(min_length=1, max_length=120)
+    startOffset: int = Field(ge=0)
+    endOffset: int = Field(gt=0)
+    text: str = Field(min_length=1, max_length=2000)
+    eventId: str = Field(min_length=1, max_length=120)
+    track: Literal["bass", "chords"]
+    disabled: bool = False
+
+    @model_validator(mode="after")
+    def valid_offsets(self):
+        if self.endOffset <= self.startOffset:
+            raise ValueError('歌词关联范围必须包含文字')
+        return self
 
 
 class Project(Model):
@@ -252,6 +292,12 @@ class Project(Model):
     bassEvents: list[BassEvent] = Field(default_factory=list, max_length=100000)
     topTrack: Literal["bass", "chords"] = "chords"
     scoreStyle: ScoreStyle = Field(default_factory=ScoreStyle)
+    performanceNotes: PerformanceNotes = Field(default_factory=PerformanceNotes)
+    keyAnalysis: KeyAnalysis | None = None
+    harmonyAnalysis: Analysis = Field(default_factory=Analysis)
+    backingAnalysis: Analysis = Field(default_factory=Analysis)
+    audioSource: Literal["original", "uploaded_bass"] = "original"
+    lyricAnchors: list[LyricAnchor] = Field(default_factory=list, max_length=100000)
     lyrics: list[Lyric] = Field(default_factory=list, max_length=100000)
     lyricsOriginal: str = Field(default="", max_length=100000)
     lyricAlignment: LyricAlignment = Field(default_factory=LyricAlignment)
@@ -259,7 +305,7 @@ class Project(Model):
     markers: list[Marker] = Field(default_factory=list, max_length=20000)
     # Personal scale-degree hints are independent of analyzed bass/MIDI notes.
     manualFills: list[ManualFill] = Field(default_factory=list, max_length=20000)
-    stems: list[Stem] = Field(default_factory=list, max_length=5)
+    stems: list[Stem] = Field(default_factory=list, max_length=6)
     analysis: Analysis = Field(default_factory=Analysis)
     updatedAt: str = Field(default_factory=utc_now)
     revision: int = Field(default=1, ge=1)

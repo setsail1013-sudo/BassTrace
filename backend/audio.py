@@ -206,6 +206,101 @@ def estimate_key(chroma: np.ndarray) -> tuple[str, float]:
     return label, max(0, min(1, score))
 
 
+def analyze_key(original: Path):
+    from .models import KeyAnalysis, KeyCandidate
+    samples, rate = read_mono(original)
+    if not len(samples) or float(np.max(np.abs(samples))) < 1e-5:
+        return KeyAnalysis(state="complete", stage="静音或信息不足，调性未识别")
+    chroma, _ = chromagram(samples, rate)
+    values = chroma.mean(axis=0)
+    major = np.array([6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88])
+    minor = np.array([6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17])
+    if float(values.std()) < 1e-5:
+        return KeyAnalysis(state="complete", stage="和声信息不足，调性未识别")
+    candidates = sorted([KeyCandidate(key=PITCH_CLASSES[root] + suffix,
+                                     score=float(np.clip(np.corrcoef(values, np.roll(template, root))[0, 1], -1, 1)))
+                         for root in range(12) for suffix, template in (("", major), ("m", minor))],
+                        key=lambda c: c.score, reverse=True)
+    # Correlations are similarity scores, never probabilities. Close relative
+    # major/minor keys remain candidates instead of a fabricated certainty.
+    reliable = candidates[0].score >= .5 and candidates[0].score - candidates[1].score >= .025
+    return KeyAnalysis(state="complete", stage="调性候选已生成" if reliable else "调性不确定，请试听候选",
+                       candidates=candidates[:4], detectedKey=candidates[0].key if reliable else None)
+
+
+def analyze_harmony(project: Project, original: Path, other: Path | None = None) -> list[Chord]:
+    samples, rate = read_mono(original)
+    chroma, times = chromagram(samples, rate)
+    if other:
+        accompaniment, other_rate = read_mono(other)
+        other_chroma, other_times = chromagram(accompaniment, other_rate)
+        aligned = np.stack([np.interp(times, other_times, other_chroma[:, i]) for i in range(12)], axis=1)
+        chroma = .4 * chroma + .6 * aligned
+    templates = []
+    for root in range(12):
+        for suffix, intervals in (("", [0, 4, 7]), ("m", [0, 3, 7]), ("7", [0, 4, 7, 10]),
+                                  ("maj7", [0, 4, 7, 11]), ("m7", [0, 3, 7, 10])):
+            vector = np.zeros(12)
+            vector[[(root + interval) % 12 for interval in intervals]] = 1
+            vector[root] = 1.25
+            templates.append((PITCH_CLASSES[root] + suffix, vector / np.linalg.norm(vector)))
+    matrix = np.array([entry[1] for entry in templates])
+    beats = int(project.meter.split('/')[0])
+    half = beats / 2
+    count = max(1, time_to_beat(project, project.duration)[0])
+    result = []
+    previous = None
+    for bar in range(1, count + 1):
+        for beat in (1, 1 + half):
+            start = max(0, beat_to_time(project, bar, beat))
+            end = min(project.duration, beat_to_time(project, bar, beat + half))
+            frames = chroma[(times >= start) & (times < end)]
+            segment = samples[int(start * rate):int(end * rate)]
+            if end <= start or not len(frames) or not len(segment) or float(np.sqrt(np.mean(segment ** 2))) < 1e-5:
+                previous = None
+                continue
+            vector = frames.mean(axis=0)
+            scores = matrix @ vector / max(float(np.linalg.norm(vector)), 1e-10)
+            order = np.argsort(scores)
+            label = templates[int(order[-1])][0]
+            if label != previous:
+                result.append(Chord(id=f'harmony-{round(start * 1000000)}', bar=bar, beat=beat,
+                                    start=start, end=end, label=label, source='analysis',
+                                    confidence=float(np.clip((scores[order[-1]] - scores[order[-2]]) * 3 + .35, .2, .75))))
+            previous = label
+    return result
+
+
+def mix_backing(stems: list[Path], original: Path, target: Path):
+    if len(stems) != 3:
+        raise ValueError('伴奏需要完整的鼓、人声和其他伴奏三个分轨')
+    info = sf.info(original)
+    mixed = np.zeros((info.frames, info.channels), dtype=np.float32)
+    for path in stems:
+        if not valid_stem_audio(path, info.duration):
+            raise ValueError('伴奏分轨无效或时长与原曲不一致，请重新分离')
+        samples, rate = sf.read(path, dtype='float32', always_2d=True)
+        if rate != info.samplerate:
+            divisor = math.gcd(rate, info.samplerate)
+            samples = resample_poly(samples, info.samplerate // divisor, rate // divisor, axis=0)
+        if info.channels == 1:
+            samples = samples.mean(axis=1, keepdims=True)
+        elif samples.shape[1] == 1:
+            samples = np.repeat(samples, info.channels, axis=1)
+        elif samples.shape[1] != info.channels:
+            raise ValueError('分轨声道格式不匹配')
+        length = min(info.frames, len(samples))
+        mixed[:length] += samples[:length]
+    peak = float(np.max(np.abs(mixed)))
+    gain = min(1.0, 10 ** (-1 / 20) / peak) if peak > 0 else 1.0
+    temporary = target.with_name(target.stem + '.tmp.wav')
+    try:
+        sf.write(temporary, mixed * gain, info.samplerate, subtype='PCM_16')
+        temporary.replace(target)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def analyze_basic(project: Project, original: Path) -> dict:
     samples, rate = read_mono(original)
     bpm, offset, warnings = estimate_tempo(samples, rate)

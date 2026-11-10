@@ -16,6 +16,16 @@ $requirementsPath = Join-Path $projectRoot 'requirements.txt'
 $frontendRoot = Join-Path $projectRoot 'frontend'
 $browserJob = $null
 
+function Get-LocalFileHash {
+    param([string]$Path)
+    # The desktop uses Windows PowerShell; do not depend on modules inherited
+    # from a PowerShell 7 caller's PSModulePath.
+    $stream = [IO.File]::OpenRead($Path)
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { return [BitConverter]::ToString($sha.ComputeHash($stream)).Replace('-', '') }
+    finally { $sha.Dispose(); $stream.Dispose() }
+}
+
 function Invoke-CheckedCommand {
     param([string]$Executable, [string[]]$Arguments)
     & $Executable @Arguments
@@ -29,7 +39,7 @@ function Get-DependencyHash {
     foreach ($dependencyFile in @('package.json', 'package-lock.json')) {
         $dependencyPath = Join-Path $frontendRoot $dependencyFile
         if (Test-Path -LiteralPath $dependencyPath) {
-            $hashItems += (Get-FileHash -LiteralPath $dependencyPath -Algorithm SHA256).Hash
+            $hashItems += Get-LocalFileHash $dependencyPath
         }
     }
     return ($hashItems -join ':')
@@ -37,7 +47,7 @@ function Get-DependencyHash {
 
 function Get-FrontendSourceHash {
     $sourceFiles = @()
-    foreach ($sourceFolder in @('src', 'public')) {
+    foreach ($sourceFolder in @('src', 'public', 'scripts')) {
         $sourcePath = Join-Path $frontendRoot $sourceFolder
         if (Test-Path -LiteralPath $sourcePath) {
             $sourceFiles += Get-ChildItem -LiteralPath $sourcePath -Recurse -File
@@ -49,7 +59,7 @@ function Get-FrontendSourceHash {
     }
     $hashItems = foreach ($sourceFile in ($sourceFiles | Sort-Object FullName)) {
         $relativePath = $sourceFile.FullName.Substring($frontendRoot.Length)
-        $relativePath + ':' + (Get-FileHash -LiteralPath $sourceFile.FullName -Algorithm SHA256).Hash
+        $relativePath + ':' + (Get-LocalFileHash $sourceFile.FullName)
     }
     return ($hashItems -join '|')
 }
@@ -82,7 +92,7 @@ try {
     }
 
     Invoke-CheckedCommand -Executable $venvPython -Arguments @('-c', "import sys; assert sys.version_info >= (3, 11), 'Python 3.11 or newer is required'")
-    $requirementsHash = (Get-FileHash -LiteralPath $requirementsPath -Algorithm SHA256).Hash
+    $requirementsHash = Get-LocalFileHash $requirementsPath
     $pythonStamp = Join-Path $venvRoot '.basschart-requirements.sha256'
     & $venvPython -c "import importlib.util, sys; sys.exit(0 if all(importlib.util.find_spec(name) is not None for name in ('fastapi', 'uvicorn', 'numpy', 'multipart', 'scipy', 'soundfile', 'httpx')) else 1)"
     $pythonImportsReady = $LASTEXITCODE -eq 0
@@ -102,11 +112,12 @@ try {
         & $venvPython -c "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('demucs') is not None else 1)"
         if ($LASTEXITCODE -ne 0) {
             $existingModelPython = Get-Command python.exe -ErrorAction SilentlyContinue
-            if ($existingModelPython -and $existingModelPython.Source -notmatch '\\WindowsApps\\') {
+            $modelPythonPath = if ($existingModelPython -and $existingModelPython.Source -notmatch '\\WindowsApps\\') { $existingModelPython.Source } else { (& $venvPython -c "import sys; print(sys._base_executable)").Trim() }
+            if ($modelPythonPath -and (Test-Path -LiteralPath $modelPythonPath)) {
                 $demucsProbe = "import sys`ntry:`n import demucs.separate`nexcept Exception:`n sys.exit(1)"
-                & $existingModelPython.Source -c $demucsProbe *> $null
+                & $modelPythonPath -c $demucsProbe *> $null
                 if ($LASTEXITCODE -eq 0) {
-                    $env:BASSCHART_DEMUCS_PYTHON = $existingModelPython.Source
+                    $env:BASSCHART_DEMUCS_PYTHON = $modelPythonPath
                     Write-Host 'Using the existing Python environment for Demucs separation.'
                 }
             }
@@ -114,6 +125,8 @@ try {
     }
 
     $npmCommand = Get-Command npm.cmd -ErrorAction SilentlyContinue
+    $nodeCommand = Get-Command node.exe -ErrorAction SilentlyContinue
+    if ($nodeCommand) { $env:BASSCHART_NODE = $nodeCommand.Source }
     if (-not $npmCommand) {
         throw 'Node.js / npm was not found. Install Node.js 20.19+ or 22.12+, reopen the terminal, then try again.'
     }
@@ -134,11 +147,12 @@ try {
 
         $buildStamp = Join-Path $frontendRoot 'dist\.basschart-source.sha256'
         $sourceHash = Get-FrontendSourceHash
-        if ($Rebuild -or $Reinstall -or -not (Test-Path -LiteralPath (Join-Path $frontendRoot 'dist\index.html')) -or -not (Test-Stamp $buildStamp $sourceHash)) {
+        if ($Rebuild -or $Reinstall -or -not (Test-Path -LiteralPath (Join-Path $frontendRoot 'dist\index.html')) -or -not (Test-Path -LiteralPath (Join-Path $frontendRoot 'dist-renderer\score.mjs')) -or -not (Test-Stamp $buildStamp $sourceHash)) {
             Write-Host 'Building the interface...'
             Invoke-CheckedCommand -Executable $npmCommand.Source -Arguments @('run', 'build')
             Set-Content -LiteralPath $buildStamp -Value $sourceHash -Encoding UTF8
         }
+        if ($nodeCommand) { Invoke-CheckedCommand -Executable $nodeCommand.Source -Arguments @('scripts/check-pdf.mjs') }
     } finally {
         Pop-Location
     }
@@ -168,7 +182,7 @@ try {
     }
 
     Write-Host ''
-    Write-Host "BassChart Studio: $localUrl" -ForegroundColor Cyan
+    Write-Host "BassTrace: $localUrl" -ForegroundColor Cyan
     Write-Host 'Keep this window open. Press Ctrl+C to stop the server.'
     Invoke-CheckedCommand -Executable $venvPython -Arguments @('-m', 'uvicorn', 'backend.app:app', '--host', '127.0.0.1', '--port', "$Port")
 } catch {

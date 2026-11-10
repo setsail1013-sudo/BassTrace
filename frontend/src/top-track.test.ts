@@ -18,9 +18,11 @@ test('copy top section maps timing through variable grid and replaces just the t
 });
 test('finished analysis preserves unsaved edits/deletions but replaces untouched previous candidates',()=>{
  const before=base(),local=structuredClone(before),incoming=structuredClone(before);
+ local.title='人工修改曲名';local.artist='Adele / 王菲';
  local.bassEvents=[{...local.bassEvents![0],pitchClass:7,source:'manual',locked:true}];local.lyrics=[{id:'l',text:'正在编辑',start:1,end:3,locked:true,source:'manual'}];
  incoming.bassEvents=[{id:'new',start:0,end:8,pitchClass:2,confidence:.7,source:'analysis',locked:false}];incoming.revision=2;
  const merged=mergeAnalysisView(local,incoming,before);
+ assert.equal(merged.title,local.title);assert.equal(merged.artist,local.artist);
  assert.equal(merged.revision,2);assert.deepEqual(merged.lyrics,local.lyrics);assert.equal(merged.bassEvents!.find(e=>e.id==='a')?.pitchClass,7);
  assert.ok(merged.bassEvents!.filter(e=>e.id!=='a').every(e=>e.end<=1||e.start>=2));
  assert.ok(merged.bassEvents!.every(e=>e.end<=3||e.start>=4));assert.ok(merged.bassEvents!.some(e=>e.start===4&&e.end===8));

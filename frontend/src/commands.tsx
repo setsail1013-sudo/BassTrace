@@ -1,3 +1,4 @@
+import { Presence } from './motion';
 import { createContext, useContext, useEffect, useId, useLayoutEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import './commands.css';
@@ -60,21 +61,21 @@ function CommandSurface({ registry }: { registry: Registry }) {
   ]);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.repeat) return;
+      if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return;
       if (open) return;
       const target = event.target as HTMLElement;
-      const input = !!target.closest('input,textarea,select,[contenteditable="true"]'), dialog = !!target.closest('[role="dialog"]');
+      const input = !!target.closest('input:not([type="range"]),textarea,select,[contenteditable="true"]'), dialog = !!target.closest('[role="dialog"]');
       const command = registry.all().find(c => c.enabled !== false && (!input || c.inInput) && (!dialog || c.inDialog) && (!c.scope || !!target.closest('.three-track-score')) && c.keys?.some(key => matchesShortcut(event, key)));
-      if (command) { event.preventDefault(); event.stopPropagation(); registry.invoke(command.id); }
+      if (command) { event.preventDefault(); event.stopPropagation(); if (!event.repeat) registry.invoke(command.id); }
     };
     window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey);
   }, [open, registry]);
-  if (!open) return null;
+
   const unique = commands.filter((c, i) => commands.findIndex(n => n.id === c.id) === i);
   const filtered = unique.filter(c => (open !== 'help' || c.keys?.length) && `${c.label} ${c.group ?? ''} ${c.keys?.join(' ') ?? ''}`.toLowerCase().includes(query.toLowerCase()));
   const current = Math.min(active, Math.max(0, filtered.length - 1));
   function execute(command: Command) { if (command.enabled === false) return; setOpen(null); registry.invoke(command.id); }
-  return <div className="command-backdrop no-print" onMouseDown={e => { if (e.target === e.currentTarget) close(); }}>
+  return <Presence>{open?<div className="command-backdrop no-print" onMouseDown={e => { if (e.target === e.currentTarget) close(); }}>
     <section className="command-panel" role="dialog" aria-modal="true" aria-label={open === 'help' ? '快捷键帮助' : '搜索命令'} onKeyDown={e => {
       if (e.nativeEvent.isComposing) return;
       if (e.key === 'Escape') { e.preventDefault(); close(); }
@@ -87,7 +88,7 @@ function CommandSurface({ registry }: { registry: Registry }) {
       <header><strong>{open === 'help' ? '快捷键帮助' : '搜索命令'}</strong><button aria-label="关闭命令面板" onClick={close}>Esc</button></header>
       <input autoFocus aria-label="搜索操作或快捷键" placeholder="搜索操作，例如：歌词、加花、复制和弦…" value={query} onChange={e => { setQuery(e.target.value); setActive(0); }}/>
       <div className="command-list">{filtered.map((c, i) => <button key={c.id} className={i === current ? 'active' : ''} disabled={c.enabled === false} onClick={() => execute(c)} title={c.keys?.join(' / ')}><span>{c.label}<small>{c.group ?? '工作台'}{c.enabled === false ? ' · 当前不可用' : ''}</small></span><kbd>{c.keys?.join(' / ').replace('Plus', '+')}</kbd></button>)}{!filtered.length && <p>没有找到对应操作</p>}</div>
-      <footer>文字输入时保留常规编辑按键。歌词句首空格／退格调整 ¼ 拍，双空格拆分，空白耗尽后双退格合并。</footer>
+      <footer>Space 播放／暂停，文字输入时保留编辑按键。加花支持 Ctrl／Shift+点击和空白处框选，Delete 批量删除，[／] 批量改下划线。歌词句首空格／退格调 ¼ 拍，双空格拆分，空白耗尽后双退格合并。</footer>
     </section>
-  </div>;
+  </div>:null}</Presence>;
 }

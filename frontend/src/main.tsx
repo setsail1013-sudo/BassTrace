@@ -6,3 +6,5 @@ import './style.css';
 import './apple.css';
 import './score-style.css';
 ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><CommandProvider><App /></CommandProvider></React.StrictMode>);
+
+import './motion.css';

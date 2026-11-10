@@ -63,7 +63,7 @@ test('a chord spanning score rows continues in order and multiple groups never o
   for (let i = 0; i < result.items.length; i++) for (const b of result.items.slice(i + 1)) {
     const a = result.items[i]; if (a.row !== b.row) continue;
     const overlapX = Math.min(a.left + a.width, b.left + b.width) - Math.max(a.left, b.left);
-    if (overlapX > 0) assert.ok(Math.abs(a.top - b.top) >= Math.min(a.fontSize, b.fontSize) * 1.2 + 26);
+    if (overlapX > 0) assert.ok(Math.abs(a.top - b.top) >= Math.min(a.height!, b.height!));
   }
 });
 test('no-chord fills use the containing bar, print and mobile keep every digit, and rest replacement clears octave', () => {

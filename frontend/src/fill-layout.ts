@@ -3,8 +3,8 @@ import { beatIndex, type ScoreRow } from './tracks';
 import { topEvents, topEventTime } from './top-track';
 
 export interface FillLayoutRow { id: number; start: number; end: number; width: number }
-export interface FillLayoutGroup { id: string; start: number; end: number; notes: { id: string; beat: number }[] }
-export interface FillPlacement { id: string; group: string; row: number; left: number; top: number; width: number; fontSize: number; compact: boolean; rangeLeft: number; rangeRight: number }
+export interface FillLayoutGroup { id: string; start: number; end: number; notes: { id: string; beat: number }[]; bands?: number[] }
+export interface FillPlacement { id: string; group: string; row: number; left: number; top: number; width: number; fontSize: number; compact: boolean; rangeLeft: number; rangeRight: number; symbolRows?: string; height?: number }
 
 export function fillLayoutRows(p: Project, rows: ScoreRow[], width: number): FillLayoutRow[] {
   return rows.map(row => ({ id: row.startBar, start: beatIndex(p, row.startBar === 1 ? 0 : positionToTime(p, row.startBar, 1)),
@@ -21,17 +21,20 @@ export function fillLayoutGroups(p: Project): FillLayoutGroup[] {
     const active = at >= 0 && (p.topTrack !== 'bass' || events.some(c => Math.abs(c.start - boundaries[at]) < 1e-8 && c.end > first));
     const start = active ? boundaries[at] : bar === 1 ? 0 : Math.max(0, positionToTime(p, bar, 1));
     const end = active ? Math.min(boundaries[at + 1] ?? p.duration, p.topTrack === 'bass' ? Math.max(...events.filter(c => Math.abs(c.start - boundaries[at]) < 1e-8).map(c => c.end)) : p.duration) : Math.min(p.duration, boundaries.find(t => t > first) ?? p.duration, positionToTime(p, bar + 1, 1));
-    return { id: g.id, start: beatIndex(p, start), end: beatIndex(p, end), notes: g.notes.map(n => ({ id: n.id, beat: beatIndex(p, n.start) })) };
+    const bands = [g.notes.some(n=>n.notation?.connection)?14:0, Math.max(...g.notes.map(n=>Number(!!n.notation?.accent)+Number(!!n.notation?.cut)))*11, g.notes.some(n=>n.digit&&n.octave>0&&!n.notation?.dead)?9:0, 0, g.notes.some(n=>n.lines)?7:0, g.notes.some(n=>n.digit&&n.octave<0&&!n.notation?.dead)?9:0];
+    return { id: g.id, start: beatIndex(p, start), end: beatIndex(p, end), notes: g.notes.map(n => ({ id: n.id, beat: beatIndex(p, n.start) })), bands };
   });
 }
 
 /** Self-contained so the offline HTML embeds the exact same engraving algorithm. */
 export function layoutCompactFills(rows: FillLayoutRow[], groups: FillLayoutGroup[], fontSize: number, minimum = 12): { items: FillPlacement[]; heights: Record<number, number> } {
   const items: FillPlacement[] = [], heights: Record<number, number> = {}, occupied: Record<number, { left: number; right: number; top: number; bottom: number }[]> = {};
-  const size = Math.max(minimum, fontSize), symbolWidth = (font: number) => Math.max(12, font * .78), lineHeight = (font: number) => font * 1.2 + 63;
-  for (const row of rows) { heights[row.id] = lineHeight(size); occupied[row.id] = []; }
+  const size = Math.max(minimum, fontSize), symbolWidth = (font: number) => Math.max(12, font * .78);
+  for (const row of rows) { heights[row.id] = 0; occupied[row.id] = []; }
   for (const group of groups) {
     if (!group.notes.length) continue;
+    const bands = group.bands ?? [0,0,0,0,7,0];
+    const lineHeight = (font:number) => font * 1.2 + bands.reduce((sum,n)=>sum+n,0) + 8;
     const segments = rows.filter(r => r.width > 0 && r.end > group.start && r.start < group.end).map(r => ({
       row: r, left: Math.max(0, (group.start - r.start) / (r.end - r.start) * r.width),
       right: Math.min(r.width, (group.end - r.start) / (r.end - r.start) * r.width),
@@ -79,7 +82,7 @@ export function layoutCompactFills(rows: FillLayoutRow[], groups: FillLayoutGrou
       }
       for (const n of local) {
         const top = offset + n.line * h;
-        items.push({ id: n.note.id, group: group.id, row: segment.row.id, left: n.x, top, width: w, fontSize: chosenSize, compact, rangeLeft: segment.left, rangeRight: segment.right });
+        items.push({ id: n.note.id, group: group.id, row: segment.row.id, left: n.x, top, width: w, fontSize: chosenSize, compact, rangeLeft: segment.left, rangeRight: segment.right, symbolRows: bands.map((v,i)=>`${i===3?chosenSize*1.2:v}px`).join(' '), height:h });
         occupied[segment.row.id].push({ left: n.x, right: n.x + w, top, bottom: top + h });
         heights[segment.row.id] = Math.max(heights[segment.row.id], top + h + 4);
       }

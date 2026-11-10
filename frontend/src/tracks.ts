@@ -120,7 +120,15 @@ export function splitLyric(p: Project, id: string, caret: number, newId: string,
   const boundary = lyric.start + (lyric.end - lyric.start) * Array.from(left).length / Array.from(text).length;
   lyrics.splice(index, 1, { ...lyric, text: left, end: boundary, source: 'manual', locked: true },
     { ...lyric, id: newId, text: right, start: boundary, source: 'manual', locked: true });
-  return { ...p, lyrics: lyrics.map((item, order) => ({ ...item, order })) };
+  const lyricAnchors=(p.lyricAnchors??[]).flatMap(a=>{
+    if(a.lyricId!==id)return [a];
+    if(text.slice(a.startOffset,a.endOffset)!==a.text)return [];
+    if(a.endOffset<=offset)return [a];
+    if(a.startOffset>=offset)return [{...a,lyricId:newId,startOffset:a.startOffset-offset,endOffset:a.endOffset-offset}];
+    return [{...a,endOffset:offset,text:text.slice(a.startOffset,offset)},
+      {...a,id:`${a.id.slice(0,90)}-split`,lyricId:newId,startOffset:0,endOffset:a.endOffset-offset,text:text.slice(offset,a.endOffset)}];
+  });
+  return { ...p, lyricAnchors, lyrics: lyrics.map((item, order) => ({ ...item, order })) };
 }
 
 export function mergeLyricPrevious(p: Project, id: string, editedText?: string): Project {
@@ -129,7 +137,9 @@ export function mergeLyricPrevious(p: Project, id: string, editedText?: string):
   const current = lyrics[index], previous = lyrics[index - 1];
   lyrics.splice(index - 1, 2, { ...previous, text: previous.text + (editedText ?? current.text),
     start: Math.min(previous.start, current.start), end: Math.max(previous.end, current.end), source: 'manual', locked: true });
-  return { ...p, lyrics: lyrics.map((item, order) => ({ ...item, order })) };
+  const lyricAnchors=(p.lyricAnchors??[]).flatMap(a=>a.lyricId!==id?[a]:
+    (editedText??current.text).slice(a.startOffset,a.endOffset)===a.text?[{...a,lyricId:previous.id,startOffset:a.startOffset+previous.text.length,endOffset:a.endOffset+previous.text.length}]:[]);
+  return { ...p, lyricAnchors, lyrics: lyrics.map((item, order) => ({ ...item, order })) };
 }
 
 function checkLines(lines: number): asserts lines is 0 | 1 | 2 {
@@ -172,10 +182,39 @@ export function addManualFill(p: Project, time: number, digits: string, groupId:
 }
 
 export function setFillLines(p: Project, groupId: string, noteId: string, lines: 0 | 1 | 2): Project {
-  checkLines(lines);
-  const group = p.manualFills?.find(item => item.id === groupId), index = group?.notes.findIndex(note => note.id === noteId) ?? -1;
-  if (!group || index < 0 || group.notes[index].lines === lines) return p;
-  return replaceFill(p, reflowFill(p, group, index, group.notes[index].start, lines), groupId);
+  return setFillLinesBatch(p, [{ group: groupId, note: noteId }], lines);
+}
+
+export type FillTarget = { group: string; note: string };
+/** Calculate every group before returning, so a failed group cannot partially apply an edit. */
+export function setFillLinesBatch(p: Project, selection: FillTarget[], lines: 0 | 1 | 2 | { delta: -1 | 1 }): Project {
+  if (typeof lines === 'number') checkLines(lines);
+  const ids = new Set(selection.map(item => `${item.group}\u0000${item.note}`));
+  let changed = false;
+  const manualFills = (p.manualFills ?? []).map(group => {
+    const notes = group.notes.map(note => {
+      if (!ids.has(`${group.id}\u0000${note.id}`)) return note;
+      const next = typeof lines === 'number' ? lines : Math.max(0, Math.min(2, note.lines + lines.delta)) as 0 | 1 | 2;
+      return next === note.lines ? note : { ...note, lines: next };
+    });
+    const from = notes.findIndex((note, index) => note !== group.notes[index]);
+    if (from < 0) return group;
+    changed = true;
+    return cleanFillNotation(reflowFill(p, { ...group, notes }, from, notes[from].start));
+  });
+  return changed ? { ...p, manualFills } : p;
+}
+
+export function deleteFillNotes(p: Project, selection: FillTarget[]): Project {
+  const ids = new Set(selection.map(item => `${item.group}\u0000${item.note}`));
+  let changed = false;
+  const manualFills = (p.manualFills ?? []).flatMap(group => {
+    const notes = group.notes.filter(note => !ids.has(`${group.id}\u0000${note.id}`));
+    if (notes.length === group.notes.length) return [group];
+    changed = true;
+    return notes.length ? [cleanFillNotation({ ...group, notes })] : [];
+  });
+  return changed ? { ...p, manualFills } : p;
 }
 
 export function setFillOctave(p: Project, groupId: string, noteId: string, octave: number): Project {
@@ -186,12 +225,7 @@ export function setFillOctave(p: Project, groupId: string, noteId: string, octav
 }
 
 export function deleteFillNote(p: Project, groupId: string, noteId: string): Project {
-  const group = p.manualFills?.find(item => item.id === groupId), index = group?.notes.findIndex(note => note.id === noteId) ?? -1;
-  if (!group || index < 0) return p;
-  const start = group.notes[index].start, notes = group.notes.filter(note => note.id !== noteId);
-  if (!notes.length) return replaceFill(p, undefined, groupId);
-  const updated = index < notes.length ? reflowFill(p, { ...group, notes }, index, start) : { ...group, notes };
-  return replaceFill(p, updated, groupId);
+  return deleteFillNotes(p, [{ group: groupId, note: noteId }]);
 }
 
 export function moveManualFill(p: Project, groupId: string, target: number): Project {

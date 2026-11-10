@@ -4,6 +4,8 @@ import { positionToTime, type Project } from './music.ts';
 import { rowTimePercent } from './tracks.ts';
 import { exportThreeTrackHtml } from './three-track-export.ts';
 import { DEFAULT_SCORE_STYLE, readScoreStyle, scoreStyleVariables, scorePageCss } from './score-style.ts';
+import { hasTempoChanges } from './performance-notes.ts';
+import { mergeAnalysisView } from './analysis-view.ts';
 
 const base = (): Project => ({
   id: 'portable', title: '三轨排练谱', artist: '原创素材', duration: 16, originalKey: 'C Major', key: 'C Major',
@@ -17,6 +19,24 @@ const attributes = (html: string, id: string): string => {
   return found[0];
 };
 const numberAttribute = (html: string, id: string, name: string): number => Number(new RegExp(`${name}="([^"]*)"`).exec(attributes(html, id))?.[1]);
+
+test('performance notes escape text, preserve blank lines, and can be excluded without hiding metadata',()=>{
+  const p=base();p.key='D';p.keyAnalysis={state:'complete',stage:'人工确认',progress:100,warnings:[],candidates:[],detectedKey:null,confirmed:true};p.performanceNotes={effectsPreset:'03 <b>Warm</b>',technique:'轻指弹\n\n副歌加强',reminders:'尾奏看鼓手 & 停两拍',includeInExport:true};
+  let html=exportThreeTrackHtml(p);
+  assert.ok(html.includes('03 &lt;b&gt;Warm&lt;/b&gt;'));
+  assert.ok(html.includes('轻指弹\n\n副歌加强'));
+  assert.ok(html.includes('调性：D（原调 C Major）'));
+  assert.ok(html.includes('速度：120 BPM')&&html.includes('拍号：4/4'));
+  p.performanceNotes.includeInExport=false;html=exportThreeTrackHtml(p);
+  assert.ok(!html.includes('尾奏看鼓手')&&!html.includes('03 &lt;b&gt;'));
+  assert.ok(html.includes('调性：D'));
+});
+test('tempo label ignores jitter and notes survive analysis completion with unsaved local edits',()=>{
+  assert.equal(hasTempoChanges({beatTimes:Array.from({length:20},(_,i)=>i*.5+(i%2)*.002)}),false);
+  assert.equal(hasTempoChanges({beatTimes:[0,.5,1,1.5,2,2.75,3.5,4.25,5]}),true);
+  const before=base(),local={...before,performanceNotes:{effectsPreset:'09',technique:'拨片',reminders:'停两拍',includeInExport:true}};
+  assert.deepEqual(mergeAnalysisView(local,{...before,bpm:90},before).performanceNotes,local.performanceNotes);
+});
 
 test('portable chart contains three independent tracks per shared row, never old generated notes or markers', () => {
   const p = base();
@@ -139,13 +159,13 @@ test('first-bar and clipped last-bar rulers use the same coordinates as all trac
 test('score style defaults and valid custom print styles survive portable export without moving events', () => {
   const p = base();
   assert.deepEqual(readScoreStyle(p), DEFAULT_SCORE_STYLE);
-  p.scoreStyle = { lyricFontSize: 28, lyricPrintSize: 17, colors: { lyrics: '#123456', top: '#234567', fill: '#345678', mark: '#456789' }, printColor: false };
+  p.scoreStyle = { lyricFontSize: 28, lyricPrintSize: 17, printPreset: 'custom', colors: { lyrics: '#123456', top: '#234567', fill: '#345678', mark: '#456789' }, printColor: false };
   p.lyrics = [{ id: 'styled', text: '字体放大后仍在原时间', start: 4.25, end: 7, source: 'manual', locked: true }];
   const saved = JSON.stringify(p), html = exportThreeTrackHtml(p);
   assert.match(html, /class="page score-print-mono"/);
   assert.match(html, /--lyric-font:28px;--lyric-print-font:17pt/);
   assert.match(html, /--score-lyrics:#123456;--score-top:#234567;--score-fill:#345678;--score-mark:#456789/);
-  assert.match(html, /\.page \.event\.lyric\{font-size:var\(--lyric-print-font,12pt\)\}/);
+  assert.match(html, /\.page \.event\.lyric\{font-size:var\(--lyric-print-font,18pt\)/);
   assert.equal(numberAttribute(html, 'styled', 'data-time'), 4.25);
   assert.equal(numberAttribute(html, 'styled', 'data-end'), 7);
   assert.equal(JSON.stringify(p), saved);
@@ -156,7 +176,7 @@ test('untrusted styles cannot inject markup or CSS and out-of-range font sizes u
   p.scoreStyle = { lyricFontSize: 200, lyricPrintSize: Number.NaN, colors: { lyrics: '</style><script>bad</script>', top: 'red;background:url(x)', fill: '#abc', mark: '#aAbBcC' }, printColor: true };
   const normalized = readScoreStyle(p);
   assert.equal(normalized.lyricFontSize, 32);
-  assert.equal(normalized.lyricPrintSize, 12);
+  assert.equal(normalized.lyricPrintSize, 18);
   assert.deepEqual(normalized.colors, { ...DEFAULT_SCORE_STYLE.colors, mark: '#aAbBcC' });
   assert.equal(scoreStyleVariables(p)['--lyric-font'], '32px');
   const html = exportThreeTrackHtml(p);
@@ -180,9 +200,9 @@ test('portable bass mode renders exact timed pitch classes and scale degrees wit
 
 test('A4 direction fixes physical print width before notation measurement and persists in portable controls', () => {
   const p = base();
-  assert.equal(readScoreStyle(p).printOrientation, 'portrait');
-  assert.equal(scoreStyleVariables(p)['--score-page-width'], '186mm');
-  assert.match(scorePageCss(p), /size:A4 portrait;margin:12mm/);
+  assert.equal(readScoreStyle(p).printOrientation, 'landscape');
+  assert.equal(scoreStyleVariables(p)['--score-page-width'], '273mm');
+  assert.match(scorePageCss(p), /size:A4 landscape;margin:12mm/);
   p.scoreStyle = { ...DEFAULT_SCORE_STYLE, printOrientation: 'landscape' };
   assert.equal(scoreStyleVariables(p)['--score-page-width'], '273mm');
   const html = exportThreeTrackHtml(p);

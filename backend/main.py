@@ -6,20 +6,26 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
-from urllib.parse import unquote
+from urllib.parse import unquote, quote
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from starlette.concurrency import run_in_threadpool
 
 from . import adapters, audio, lyrics, storage
+from .playlists import router as playlists_router
+from .folders import router as folders_router
+from .library_transfer import router as transfer_router, recover_transfers, ArchiveUploadLimit
 from .demo import ensure_demo
-from .models import Analysis, AnalyzeRequest, LyricAlignment, LyricsAlignRequest, Project, Stem
+from .models import Analysis, AnalyzeRequest, KeyAnalysis, LyricAlignment, LyricsAlignRequest, Project, Stem
+from .project_features import router as features_router, assert_idle, apply_key
 from .timeline import beat_to_time, time_to_beat
+from .pdf_export import PdfExportRequest, PdfUnavailable, render_pdf, capabilities as pdf_capabilities
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    recover_transfers()
     # Persisted jobs cannot continue across a server restart. Make this visible
     # instead of leaving the player polling a permanently running analysis.
     with storage.LOCK:
@@ -38,12 +44,22 @@ async def lifespan(_app: FastAPI):
                 changed = True
             if changed:
                 storage.save(existing)
+            for field in ('keyAnalysis', 'harmonyAnalysis', 'backingAnalysis'):
+                task = getattr(existing, field)
+                if task is not None and task.state == 'running':
+                    task.state, task.stage = 'error', '上次任务已中断，请重试'
+                    storage.save(existing)
     yield
 
 
-app = FastAPI(title="BassChart Studio", version="2.1.0", lifespan=lifespan)
+app = FastAPI(title="BassTrace", version="2.1.0", lifespan=lifespan)
+app.include_router(playlists_router)
+app.include_router(features_router)
+app.include_router(folders_router)
+app.include_router(transfer_router)
+app.add_middleware(ArchiveUploadLimit)
 app.add_middleware(CORSMiddleware, allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
-                   allow_methods=["GET", "POST", "PUT"], allow_headers=["*"])
+                   allow_methods=["GET", "POST", "PUT", "DELETE"], allow_headers=["*"])
 EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="basschart-analysis")
 DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 MAX_UPLOAD = 300 * 1024 * 1024
@@ -58,9 +74,32 @@ def get_project(project_id: str) -> Project:
         raise HTTPException(404, "找不到工程") from exc
 
 
+@app.post("/api/projects/{project_id}/export/pdf")
+def export_pdf(project_id: str, request: PdfExportRequest):
+    saved = get_project(project_id)
+    if request.project.id != saved.id:
+        raise HTTPException(400, "导出工程 ID 不匹配")
+    # Validate against the real audio without saving, changing revisions, or edit flags.
+    snapshot = request.project.model_dump()
+    snapshot["duration"] = saved.duration
+    try:
+        request.project = Project.model_validate(snapshot)
+        storage.derive_chord_intervals(request.project)
+        pdf = render_pdf(request)
+    except ValueError as exc:
+        raise HTTPException(422, "谱面数据无效：" + str(exc)) from exc
+    except PdfUnavailable as exc:
+        raise HTTPException(503, str(exc)) from exc
+    filename = quote(request.project.title[:100] + ".pdf", safe="")
+    return Response(pdf, media_type="application/pdf", headers={
+        "Content-Disposition": f"attachment; filename=score.pdf; filename*=UTF-8''{filename}",
+        "Cache-Control": "no-store",
+    })
+
+
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "2.1.0", "capabilities": audio.capabilities()}
+    return {"status": "ok", "version": "2.1.0", "capabilities": {**audio.capabilities(), "pdf": pdf_capabilities()}}
 
 
 @app.get("/api/projects", response_model=list[Project])
@@ -74,7 +113,9 @@ def demo():
 
 
 @app.post("/api/projects/upload", response_model=Project)
-async def upload(file: UploadFile = File(...)):
+async def upload(file: UploadFile = File(...), audio_source: str = Form('original', alias='source')):
+    if audio_source not in ('original', 'uploaded_bass'):
+        raise HTTPException(422, '请选择完整原曲或独立贝斯')
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in {".wav", ".mp3", ".flac", ".m4a"}:
         raise HTTPException(415, "支持 MP3、WAV、FLAC、M4A 音频")
@@ -95,8 +136,8 @@ async def upload(file: UploadFile = File(...)):
         duration = await run_in_threadpool(adapters.DEFAULT.decoder.decode, source, directory / "original.wav")
         waveform = await run_in_threadpool(audio.peaks, directory / "original.wav")
         source.unlink(missing_ok=True)
-        project = Project(id=project_id, title=Path(file.filename or "未命名歌曲").stem[:300] or "未命名歌曲",
-                          duration=duration,
+        project = Project(id=project_id, audioSource=audio_source, title=Path(file.filename or "未命名歌曲").stem[:300] or "未命名歌曲",
+                          duration=duration, keyAnalysis=KeyAnalysis(),
                           stems=[Stem(id="original", name="原曲", available=True,
                                       url=f"/media/{project_id}/original.wav", peaks=waveform)] +
                                 [Stem(id=name, name=label) for name, label in
@@ -152,6 +193,24 @@ def run_analysis(project_id: str, options: AnalyzeRequest):
     try:
         current = storage.load(project_id)
         directory = storage.project_dir(project_id)
+        if options.source == 'uploaded_bass':
+            current.audioSource = 'uploaded_bass'
+            storage.save(current)
+        if options.source == 'original' and current.audioSource != 'uploaded_bass':
+            try:
+                key_result = audio.analyze_key(directory / 'original.wav')
+                with storage.LOCK:
+                    latest = storage.load(project_id)
+                    apply_key(latest, key_result)
+                    storage.save(latest)
+            except Exception as key_error:
+                with storage.LOCK:
+                    latest = storage.load(project_id)
+                    previous = latest.keyAnalysis or KeyAnalysis()
+                    previous.state, previous.stage = 'error', str(key_error)[-600:]
+                    latest.keyAnalysis = previous
+                    storage.save(latest)
+                warnings.append('贝斯结果已保留；调性识别失败，可独立重试。')
         new_stems = {}
         bass = None
         if options.source == "uploaded_bass":
@@ -186,6 +245,8 @@ def run_analysis(project_id: str, options: AnalyzeRequest):
         if stem_objects:
             with storage.LOCK:
                 latest = storage.load(project_id)
+                latest.stems = [s for s in latest.stems if s.id != 'backing']
+                latest.backingAnalysis = Analysis(stage='重新分离后，请重新生成伴奏')
                 for stem in stem_objects:
                     latest.stems = [item for item in latest.stems if item.id != stem.id] + [stem]
                 latest.revision += 1
@@ -260,6 +321,7 @@ def analyze(project_id: str, options: AnalyzeRequest):
             raise HTTPException(409, "该工程正在识别歌词，请等待任务完成。")
         if project.analysis.state == "running":
             return project
+        assert_idle(project)
         if options.source == "uploaded_bass":
             try:
                 checked_audio_path(storage.project_dir(project_id) / "original.wav", storage.project_dir(project_id), "导入的独立贝斯")
@@ -287,7 +349,7 @@ def isolated_stem_path(project: Project, stem_id: str, label: str) -> Path:
                   "请先执行四轨分离；不会使用原曲伪造人声识别结果。")
         raise ValueError(f"没有可用的独立{label}音轨。{detail}")
     directory = storage.project_dir(project.id)
-    return checked_audio_path(directory / unquote(stem.url[len(prefix):]), directory, label)
+    return checked_audio_path(directory / unquote(stem.url[len(prefix):].split('?', 1)[0]), directory, label)
 
 
 def bass_path(project: Project) -> Path:
@@ -354,9 +416,11 @@ def run_lyric_alignment(project_id: str, options: LyricsAlignRequest, job_id: st
 def align_lyrics(project_id: str, options: LyricsAlignRequest):
     with storage.LOCK:
         project = get_project(project_id)
+        if project.id in storage.EXPORTING:
+            raise HTTPException(409, '正在备份这首歌曲，完成后可重试')
         if options.revision is not None and options.revision != project.revision:
             raise HTTPException(409, "工程已更新，请重新加载后识别歌词。")
-        if project.analysis.state == "running" or project.lyricAlignment.state == "running":
+        if storage.task_running(project):
             raise HTTPException(409, "该工程已有分析任务，请等待任务完成。")
         try:
             vocals = vocal_path(project)
@@ -394,6 +458,7 @@ def align_lyrics(project_id: str, options: LyricsAlignRequest):
 
 @app.get("/media/{project_id}/{filename:path}")
 def media(project_id: str, filename: str):
+    get_project(project_id)
     try:
         directory = storage.project_dir(project_id).resolve()
     except ValueError as exc:

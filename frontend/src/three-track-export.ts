@@ -1,8 +1,11 @@
+import { lyricFragments } from './lyric-marks';
+import { performanceHeader } from './performance-notes';
 import { barCount, beatsPerBar, displaySections, formatTime, positionToTime, type Project } from './music';
 import { rowTimePercent, scoreRows } from './tracks';
 import { fillLayoutGroups, fillLayoutRows, layoutCompactFills } from './fill-layout';
 import { layoutFillConnections } from './fill-techniques';
 import { topEvents, topEventTime, topEventLabel } from './top-track';
+import { paginateScore } from './print-pagination';
 import { readScoreStyle, scoreStyleVariables, scorePageCss } from './score-style';
 
 const escapeHtml = (value: unknown): string => String(value).replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]!));
@@ -13,11 +16,11 @@ interface ExportEvent { id: string; start: number; end: number; fraction: number
 interface ExportRow { startBar: number; endBar: number; sectionId: string; events: ExportEvent[] }
 
 /** A portable, read-only chart. Audio stays local and only user-written fills are included. */
-export function exportThreeTrackHtml(p: Project, mode: 'chart' | 'structure' = 'chart'): string {
+export function exportThreeTrackHtml(p: Project, mode: 'chart' | 'structure' = 'chart', degree = false): string {
   const beats = beatsPerBar(p), count = barCount(p), sections = displaySections(p);
   const style = readScoreStyle(p), topLabel = p.topTrack === 'bass' ? '贝斯音名' : '和弦';
   const styleAttribute = Object.entries(scoreStyleVariables(p)).map(([key, value]) => `${key}:${value}`).join(';');
-  const rows: ExportRow[] = scoreRows(p, 4).map(row => ({ ...row, events: [] }));
+  const rows: ExportRow[] = scoreRows(p, style.printBarsPerRow).map(row => ({ ...row, events: [] }));
   const fillModel = JSON.stringify({ rows: fillLayoutRows(p, rows, 1), groups: fillLayoutGroups(p), manualFills: p.manualFills ?? [] }).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
   const place = (start: number): { row: ExportRow; fraction: number } => {
     const row = rows.find(item => start >= (item.startBar === 1 ? 0 : positionToTime(p, item.startBar, 1)) - 1e-8 && start < Math.min(p.duration, positionToTime(p, item.endBar + 1, 1)) - 1e-8)
@@ -40,7 +43,7 @@ export function exportThreeTrackHtml(p: Project, mode: 'chart' | 'structure' = '
   p.lyrics.forEach(lyric => {
     const start = finite(lyric.start), end = Math.max(start, finite(lyric.end, start));
     const { row, fraction } = place(start);
-    row.events.push({ id: lyric.id, start, end, fraction, kind: 'lyric', markup: `<span class="lyric-text">${escapeHtml(lyric.text)}</span>` });
+    row.events.push({ id: lyric.id, start, end, fraction, kind: 'lyric', markup: `<span class="lyric-text">${lyricFragments(p,lyric).map(part=>part.mark?`<span class="lyric-change-mark" data-time="${part.mark.time}">${escapeHtml(part.text)}</span>`:escapeHtml(part.text)).join('')}</span>` });
   });
   const eventHtml = (event: ExportEvent): string => `<button type="button" class="event ${event.kind}" data-id="${escapeHtml(event.id)}"${event.group !== undefined ? ` data-group="${escapeHtml(event.group)}"` : ''} data-time="${event.start}" data-start="${event.start}" data-end="${event.end}" data-anchor="${event.fraction}" title="${escapeHtml(formatTime(event.start))}" style="left:${event.fraction * 100}%">${event.markup}</button>`;
   let body: string;
@@ -64,7 +67,7 @@ export function exportThreeTrackHtml(p: Project, mode: 'chart' | 'structure' = '
       return `<article class="score-row" data-first-bar="${row.startBar}" data-last-bar="${row.endBar}" style="--bar-count:${bars}"><div class="row-grid" aria-hidden="true">${grid}</div><div class="ruler">${rulers}</div>${tracks}</article>`;
     }).join('')}</section>`).join('');
   }
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(p.title)} · BassChart Studio</title><style>${styles}${compactStyles}</style><style id="pageStyle">${scorePageCss(p)}</style></head><body><main class="page${style.printColor ? '' : ' score-print-mono'}" style="${escapeHtml(styleAttribute)}"><div class="controls"><div class="control-actions"><label class="file-choice">选择本地音频<input id="audioFile" type="file" accept="audio/*"></label>${mode === 'chart' ? '<label class="degree-choice"><input id="degrees" type="checkbox">显示级数</label>' : ''}<label class="degree-choice"><input id="printColor" type="checkbox"${style.printColor ? ' checked' : ''}>彩色打印</label><label class="degree-choice">纸张<select id="printOrientation" aria-label="打印纸张方向"><option value="portrait"${style.printOrientation === 'portrait' ? ' selected' : ''}>A4 纵向</option><option value="landscape"${style.printOrientation === 'landscape' ? ' selected' : ''}>A4 横向</option></select></label><button type="button" id="printChart">打印 / 存为 PDF</button></div><audio id="player" controls preload="metadata"></audio><p id="audioHint">选择本地音频后，可点击谱面定位试听。</p></div><header class="sheet-header"><div><h1>${escapeHtml(p.title)}</h1>${p.artist ? `<p>${escapeHtml(p.artist)}</p>` : ''}</div><p class="song-meta"><strong>${escapeHtml(p.key)}</strong><span>♩ = ${escapeHtml(p.bpm)} · ${escapeHtml(p.meter)} · ${count} 小节</span></p></header>${body}<footer>BassChart Studio · ${mode === 'chart' ? `${topLabel} / 手写加花 / 歌词` : '歌曲结构总览'}</footer></main><noscript><style>.event{position:static!important;display:inline-flex;margin:6px;max-width:100%}.event::before{display:none}.track-events{height:auto!important;display:flex;flex-wrap:wrap;align-items:start}.row-grid{display:none}</style></noscript><script>const fillModel=${fillModel};const layoutFills=${layoutCompactFills.toString()};const layoutConnections=${layoutFillConnections.toString()};${script}</script></body></html>`;
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(p.title)} · BassTrace</title><style>${styles}${compactStyles}${performanceStyles}</style><style id="pageStyle">${scorePageCss(p)}</style></head><body${degree ? ' class="show-degrees"' : ''}><main class="page${style.printColor ? '' : ' score-print-mono'}" style="${escapeHtml(styleAttribute)}"><div class="controls"><div class="control-actions"><label class="file-choice">选择本地音频<input id="audioFile" type="file" accept="audio/*"></label>${mode === 'chart' ? `<label class="degree-choice"><input id="degrees" type="checkbox"${degree ? ' checked' : ''}>显示级数</label>` : ''}<label class="degree-choice"><input id="printColor" type="checkbox"${style.printColor ? ' checked' : ''}>彩色打印</label><label class="degree-choice">纸张<select id="printOrientation" aria-label="打印纸张方向"><option value="portrait"${style.printOrientation === 'portrait' ? ' selected' : ''}>A4 纵向</option><option value="landscape"${style.printOrientation === 'landscape' ? ' selected' : ''}>A4 横向</option></select></label><button type="button" id="printChart">打印 / 存为 PDF</button></div><audio id="player" controls preload="metadata"></audio><p id="audioHint">选择本地音频后，可点击谱面定位试听。</p></div>${performanceHeader(p,escapeHtml)}${body}<footer>BassTrace · ${mode === 'chart' ? `${topLabel} / 手写加花 / 歌词` : '歌曲结构总览'}</footer></main><noscript><style>.event{position:static!important;display:inline-flex;margin:6px;max-width:100%}.event::before{display:none}.track-events{height:auto!important;display:flex;flex-wrap:wrap;align-items:start}.row-grid{display:none}</style></noscript><script>const fillModel=${fillModel};const paginateScore=${paginateScore.toString()};const layoutFills=${layoutCompactFills.toString()};const layoutConnections=${layoutFillConnections.toString()};${script}</script></body></html>`;
 }
 
 const styles = String.raw`
@@ -92,21 +95,21 @@ function layoutTrack(track){
   });
   let top=0;const tops=lanes.map(items=>{const result=top;top+=Math.max(...items.map(item=>item.height))+11;return result});
   placements.forEach(item=>{item.event.style.top=tops[item.lane]+'px';item.event.dataset.lane=String(item.lane)});
-  track.style.height=Math.max(track.dataset.kind==='fill'?39:29,top?top-5:0)+'px';
+  track.style.height=(top?top-5:0)+'px';track.parentElement.dataset.empty=String(!events.length);
 }
 const fillNodes=new Map(Array.from(document.querySelectorAll('.event.fill')).map(node=>[node.dataset.id,node]));
 function measureFills(){
   const rowNodes=new Map(Array.from(document.querySelectorAll('.score-row')).map(row=>[Number(row.dataset.firstBar),row]));
   const printing=window.matchMedia('print').matches;
   const rows=fillModel.rows.map(row=>({...row,width:Math.max(1,rowNodes.get(row.id)?.querySelector('.fill-track .track-events')?.clientWidth||650)}));
-  const result=layoutFills(rows,fillModel.groups,printing?14:window.innerWidth<=650?16:19,12);
+  const printSize=parseFloat(getComputedStyle(document.querySelector('.page')).getPropertyValue('--fill-print-font'))*4/3||64/3;const result=layoutFills(rows,fillModel.groups,printing?printSize:window.innerWidth<=650?16:19,printing?printSize:12);
   result.items.forEach(at=>{
     const node=fillNodes.get(at.id),track=rowNodes.get(at.row)?.querySelector('.fill-track .track-events');if(!node||!track)return;
     if(node.parentElement!==track)track.appendChild(node);
     Object.assign(node.style,{left:at.left+'px',top:at.top+'px',width:at.width+'px',maxWidth:at.width+'px',fontSize:at.fontSize+'px'});
-    node.dataset.compact=String(at.compact);node.dataset.rangeLeft=String(at.rangeLeft);node.dataset.rangeRight=String(at.rangeRight);
+    node.style.setProperty('--fill-symbol-rows',at.symbolRows);node.dataset.compact=String(at.compact);node.dataset.rangeLeft=String(at.rangeLeft);node.dataset.rangeRight=String(at.rangeRight);
   });
-  Object.entries(result.heights).forEach(([id,height])=>{const track=rowNodes.get(Number(id))?.querySelector('.fill-track .track-events');if(track)track.style.height=height+'px'});
+  Object.entries(result.heights).forEach(([id,height])=>{const track=rowNodes.get(Number(id))?.querySelector('.fill-track .track-events');if(track){track.style.height=height+'px';track.parentElement.dataset.empty=String(!height)}});
   document.querySelectorAll('.fill-connections').forEach(node=>node.remove());
   const paths=layoutConnections(result.items,fillModel.manualFills);
   for(const [id,row] of rowNodes){
@@ -118,9 +121,15 @@ function measureFills(){
     });track.appendChild(svg);
   }
 }
-function measureChart(){document.querySelectorAll('.track-events:not([data-kind="fill"])').forEach(layoutTrack);measureFills()}
-let scheduled=false;function scheduleLayout(){if(scheduled)return;scheduled=true;requestAnimationFrame(()=>{scheduled=false;measureChart()})}
-measureChart();window.addEventListener('resize',scheduleLayout);window.addEventListener('beforeprint',measureChart);window.addEventListener('afterprint',measureChart);window.matchMedia('print').addEventListener('change',measureChart);if(document.fonts)document.fonts.ready.then(measureChart);if(window.ResizeObserver){const observer=new ResizeObserver(scheduleLayout);document.querySelectorAll('.score-row').forEach(row=>observer.observe(row))}
+let prepared=false;
+function measureChart(){if(prepared)return;document.querySelectorAll('.page>.song-section .track-events:not([data-kind="fill"])').forEach(layoutTrack);measureFills()}
+function preparePrint(){if(prepared)return;measureChart();paginateScore();prepared=true}
+function clearPrint(){prepared=false;document.querySelector('.print-pages')?.remove();document.body.classList.remove('print-paginated');measureChart()}
+let scheduled=false;function scheduleLayout(){if(scheduled||prepared)return;scheduled=true;requestAnimationFrame(()=>{scheduled=false;measureChart()})}
+measureChart();window.addEventListener('resize',scheduleLayout);window.addEventListener('beforeprint',preparePrint);window.addEventListener('afterprint',clearPrint);
+window.matchMedia('print').addEventListener('change',event=>event.matches?preparePrint():clearPrint());
+window.__scoreReady=(document.fonts?document.fonts.ready:Promise.resolve()).then(()=>new Promise((resolve,reject)=>requestAnimationFrame(()=>requestAnimationFrame(()=>{try{measureChart();if(window.matchMedia('print').matches)preparePrint();resolve(true)}catch(error){reject(error)}}))));
+if(window.ResizeObserver){const observer=new ResizeObserver(scheduleLayout);document.querySelectorAll('.score-row').forEach(row=>observer.observe(row))}
 const degrees=document.getElementById('degrees');if(degrees)degrees.addEventListener('change',()=>{document.body.classList.toggle('show-degrees',degrees.checked);measureChart()});
 document.getElementById('printColor').addEventListener('change',event=>{document.querySelector('.page').classList.toggle('score-print-mono',!event.target.checked)});
 document.getElementById('printOrientation').addEventListener('change',event=>{const landscape=event.target.value==='landscape';document.querySelector('.page').style.setProperty('--score-page-width',landscape?'273mm':'186mm');document.getElementById('pageStyle').textContent='@page{size:A4 '+(landscape?'landscape':'portrait')+';margin:12mm}';measureChart()});
@@ -133,12 +142,18 @@ window.addEventListener('pagehide',()=>{if(audioUrl)URL.revokeObjectURL(audioUrl
 `;
 
 const compactStyles = `
+.print-pages{display:none}.print-page-number{position:absolute;bottom:0;right:0;left:0;text-align:center;font-size:9pt;color:#666}.print-row-clip{position:relative;overflow:hidden}.print-row-fragment{break-inside:avoid}
+@media print{
+ body.print-paginated>.page{display:none}body.print-paginated>.print-pages{display:block}.print-page.page{position:relative;padding:0;margin:0;max-width:none;break-after:page;overflow:hidden}.print-page:last-child{break-after:auto}
+ .page .track[data-empty="true"]{display:none}.page .track>header{display:none}.page .track-events{min-height:0}.page .track{padding:4px 0}.page .sheet-header{padding:0 0 8px;margin-bottom:10px}.page .song-section h2,.print-page>h2{font-size:12pt;margin:10px 0 6px;line-height:1.3}.print-page>h2{display:flex;gap:10px;align-items:center}.print-page>h2 small{font-size:9pt;font-weight:400;color:#666}.page .score-row{margin-bottom:6px}.page .event{cursor:default}
+}
+
 .page .event.chord,.page .chord .degree{color:var(--score-top,#1D4ED8)}
-.page .event.lyric{font-size:var(--lyric-font,20px);color:var(--score-lyrics,#1D1D1F)}
+.page .event.lyric{font-size:var(--lyric-font,20px);color:var(--score-lyrics,#1D1D1F)}.lyric-change-mark{color:var(--score-top,#1D4ED8);font-weight:700}.score-print-mono .lyric-change-mark{color:#000;text-decoration:underline;text-underline-offset:3px}
 .page .event.fill{color:var(--score-fill,#167047);padding:0;min-width:0}
-.fill::before{display:none}.fill .fill-symbol{min-width:0;width:100%;grid-template-rows:12px 22px 9px 1.1em 6px 9px}
+.fill::before{display:none}.fill .fill-symbol{min-width:0;width:100%;grid-template-rows:var(--fill-symbol-rows,0px 0px 0px 1.2em 7px 0px)}
 .fill .rhythm{width:100%;height:6px;align-self:start}.fill .digit{font-size:inherit}
-.technique-marks{display:flex;flex-direction:column;align-items:center;white-space:nowrap;font:10px/11px sans-serif}.technique-marks>span{height:11px}
+.technique-marks{display:flex;flex-direction:column;align-items:center;white-space:nowrap;font:10px/11px sans-serif}.technique-marks>span{height:11px}.technique-marks>span:empty{display:none}.fill-symbol>span{min-height:0;overflow:hidden;height:100%;margin:0!important}.fill-symbol .digit{line-height:1.2;overflow:visible}
 .page .technique-marks,.page .digit.dead,.page .fill-connections{color:var(--score-mark,#C62828)}
 .fill-connections{position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none;z-index:2}
 .fill-connections path{fill:none;stroke:currentColor;stroke-width:1.3;stroke-linecap:round;stroke-linejoin:round}
@@ -147,7 +162,22 @@ const compactStyles = `
 @media print{
   .page,.page *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
   .page{width:var(--score-page-width,186mm);max-width:none}
-  .page .event.lyric{font-size:var(--lyric-print-font,12pt)}
+  .page .event.lyric{font-size:var(--lyric-print-font,18pt);line-height:1.5}.page .event.chord{font-size:var(--top-print-font,22pt)}
   .page.score-print-mono{--score-lyrics:#000!important;--score-top:#000!important;--score-fill:#000!important;--score-mark:#000!important}
 }
+`;
+
+const performanceStyles=String.raw`
+.page .performance-header{display:block;padding:0 0 12px;margin:0 0 12px;border-bottom:1px solid #d2d2d7}
+.page .performance-header h1{font-size:24pt;line-height:1.25;margin:0 0 10px;overflow-wrap:anywhere}
+.page .performance-header .performance-meta{font-size:18pt;line-height:1.5;font-weight:650;color:#1d1d1f;white-space:normal;overflow-wrap:anywhere;margin:0}
+.page .performance-header .performance-artist{font-size:11pt;margin:5px 0 0;color:#626268}
+.page .performance-note{font-size:14pt;line-height:1.6;color:#1d1d1f;white-space:pre-wrap;overflow-wrap:anywhere;margin:0 0 7px;word-break:normal}
+.page .performance-note.reminders{color:var(--score-mark,#C62828)}
+.performance-export-notes:has(.performance-note){margin-bottom:12px}
+.continuation-header{display:flex;flex-wrap:wrap;gap:4px 18px;align-items:baseline;font-size:10pt;line-height:1.5;border-bottom:1px solid #d2d2d7;padding-bottom:5px;margin:0 0 10px;overflow-wrap:anywhere}
+.continuation-header b{font-size:12pt}.continuation-header span{font-size:10pt}
+.score-print-mono .performance-note.reminders{color:#000!important}
+@media(max-width:650px){.page .performance-header h1{font-size:24px}.page .performance-header .performance-meta{font-size:18px}.page .performance-note{font-size:16px}}
+@media print{*,*:before,*:after{animation:none!important;transition:none!important}.page .performance-header h1{font-size:24pt}.page .performance-header .performance-meta{font-size:18pt}.page .performance-note{font-size:14pt}.page .performance-note.reminders{color:var(--score-mark,#C62828);print-color-adjust:exact;-webkit-print-color-adjust:exact}.performance-export-notes{margin:0}.performance-note{break-inside:auto}}
 `;

@@ -13,6 +13,7 @@ from .timeline import beat_to_time
 
 DATA_ROOT = Path(__file__).resolve().parent / "data" / "projects"
 LOCK = threading.RLock()
+EXPORTING: set[str] = set()
 ID_PATTERN = re.compile(r"(?:demo|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\Z")
 GRID_FIELDS = ("bpm", "meter", "offset", "beatTimes")
 
@@ -78,6 +79,21 @@ def project_dir(project_id: str) -> Path:
     return DATA_ROOT / project_id
 
 
+def trash_records() -> dict:
+    path = DATA_ROOT / "trash.json"
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+
+
+def is_trashed(project_id: str) -> bool:
+    return project_id in trash_records()
+
+
+def task_running(project: Project) -> bool:
+    return any(task is not None and task.state == "running" for task in
+               (project.analysis, project.lyricAlignment, project.keyAnalysis,
+                project.harmonyAnalysis, project.backingAnalysis))
+
+
 def write_json(path: Path, data: dict):
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(".tmp")
@@ -87,6 +103,8 @@ def write_json(path: Path, data: dict):
 
 def save(project: Project):
     with LOCK:
+        if is_trashed(project.id):
+            raise FileNotFoundError("歌曲已移入回收站")
         derive_chord_intervals(project)
         project.updatedAt = utc_now()
         write_json(project_dir(project.id) / "project.json", project.model_dump())
@@ -94,8 +112,10 @@ def save(project: Project):
             update_index(connection, project)
 
 
-def load(project_id: str) -> Project:
+def load(project_id: str, *, include_trash: bool = False) -> Project:
     with LOCK:
+        if not include_trash and is_trashed(project_id):
+            raise FileNotFoundError("歌曲已移入回收站")
         path = project_dir(project_id) / "project.json"
         if not path.is_file():
             raise FileNotFoundError("找不到工程")
@@ -103,6 +123,14 @@ def load(project_id: str) -> Project:
         if project.id != project_id:
             raise ValueError("工程 ID 与文件目录不匹配")
         derive_chord_intervals(project)
+        if project.keyAnalysis is None and any(edit_flags(project_id).get(f) for f in ('key', 'originalKey')):
+            from .models import KeyAnalysis
+            project.keyAnalysis = KeyAnalysis(confirmed=True, stage='已保留人工调性')
+        if 'audioSource' not in project.model_fields_set:
+            original = next((s for s in project.stems if s.id == 'original'), None)
+            bass = next((s for s in project.stems if s.id == 'bass' and s.available), None)
+            if original and bass and original.url == bass.url:
+                project.audioSource = 'uploaded_bass'
         return project
 
 
@@ -128,13 +156,19 @@ def edit_flags(project_id: str) -> dict:
 def save_user_edit(old: Project, new: Project) -> Project:
     """Detect edited events, including clients that omit manual/locked flags."""
     with LOCK:
-        for field in ("bassEvents", "topTrack", "scoreStyle"):
+        for field in ("bassEvents", "topTrack", "scoreStyle", "performanceNotes", "lyricAnchors"):
             if field not in new.model_fields_set:
                 value = getattr(old, field)
                 setattr(new, field, value.model_copy(deep=True) if hasattr(value, "model_copy")
                         else [event.model_copy(deep=True) for event in value] if isinstance(value, list) else value)
+        if "performanceNotes" in new.model_fields_set:
+            preserve_omitted_fields(old.performanceNotes, new.performanceNotes)
         if "scoreStyle" in new.model_fields_set:
             preserve_omitted_fields(old.scoreStyle, new.scoreStyle)
+        previous_anchors = {a.id: a for a in old.lyricAnchors}
+        for anchor in new.lyricAnchors:
+            if anchor.id in previous_anchors:
+                preserve_omitted_fields(previous_anchors[anchor.id], anchor)
         if "manualFills" not in new.model_fields_set:
             # A pre-three-track client does not know this collection. Only an
             # explicitly supplied empty list means the user cleared the track.
@@ -165,6 +199,25 @@ def save_user_edit(old: Project, new: Project) -> Project:
             from .models import LyricAlignment
             new.lyricAlignment = LyricAlignment(stage="原文已更新，请重新对齐", detectedSegments=old.lyricAlignment.detectedSegments)
         flags = edit_flags(old.id)
+        # Task outputs and audio provenance cannot be replaced by stale clients.
+        key_confirmed = bool(new.keyAnalysis and new.keyAnalysis.confirmed)
+        new.keyAnalysis = old.keyAnalysis.model_copy(deep=True) if old.keyAnalysis else None
+        if old.key != new.key or old.originalKey != new.originalKey or key_confirmed:
+            from .models import KeyAnalysis
+            if new.keyAnalysis is None:
+                new.keyAnalysis = KeyAnalysis()
+            new.keyAnalysis.confirmed = True
+        new.harmonyAnalysis = old.harmonyAnalysis
+        new.backingAnalysis = old.backingAnalysis
+        new.audioSource = old.audioSource
+        # Text offsets use browser UTF-16 carets; stale anchors are removed rather
+        # than silently attached to a different word or replacement event.
+        lyric_by_id = {l.id: l for l in new.lyrics}
+        valid_events = {"bass": {e.id for e in new.bassEvents}, "chords": {e.id for e in new.chords}}
+        new.lyricAnchors = [a for a in new.lyricAnchors
+                            if a.lyricId in lyric_by_id and a.eventId in valid_events[a.track]
+                            and lyric_by_id[a.lyricId].text.encode('utf-16-le')[a.startOffset * 2:a.endOffset * 2]
+                            == a.text.encode('utf-16-le')]
         for field in GRID_FIELDS + ("key", "originalKey", "sections", "markers", "topTrack"):
             if getattr(old, field) != getattr(new, field):
                 flags[field] = True
@@ -174,6 +227,13 @@ def save_user_edit(old: Project, new: Project) -> Project:
             deleted = set(flags.get("deleted_" + name, []))
             deleted.update(set(before) - {event.id for event in after})
             flags["deleted_" + name] = sorted(deleted)
+            if name == 'chords':
+                intervals = flags.setdefault('deleted_chord_intervals', [])
+                for event_id in set(before) - {event.id for event in after}:
+                    previous = before[event_id]
+                    interval = [previous.start, previous.end]
+                    if interval not in intervals:
+                        intervals.append(interval)
             if name == "bassEvents":
                 intervals = flags.setdefault("deleted_bass_intervals", [])
                 for event_id in set(before) - {event.id for event in after}:
@@ -236,9 +296,10 @@ def merge_candidates(current: Project, result: dict) -> Project:
             continue
         # Chord positions are measured against the analyzed beat grid. A corrected
         # human grid must remain the source of truth, so retain existing events.
-        if name == "chords" and manual_grid:
+        if name == "chords" and manual_grid and not result.get('_harmonyOnCurrentGrid'):
             continue
-        protected = [event for event in getattr(current, name) if event.locked or event.source == "manual"]
+        linked_ids = {a.eventId for a in current.lyricAnchors if a.track == name and not a.disabled}
+        protected = [event for event in getattr(current, name) if event.locked or event.source == "manual" or event.id in linked_ids]
         protected_ids = {event.id for event in protected}
         deleted = set(flags.get("deleted_" + name, []))
         candidates = []
@@ -247,6 +308,9 @@ def merge_candidates(current: Project, result: dict) -> Project:
                 continue
             if name == "chords":
                 collision = any(p.bar == event.bar and abs(p.beat - event.beat) < .01 for p in protected)
+                event_time = beat_to_time(current, event.bar, event.beat)
+                collision = collision or any(start - 1e-6 <= event_time < end - 1e-6
+                                             for start, end in flags.get('deleted_chord_intervals', []))
             else:
                 event_end = event.end if name in {"lyrics", "bassEvents"} else event.start + event.duration
                 collision = any(event.start < (p.end if name in {"lyrics", "bassEvents"} else p.start + p.duration)
@@ -269,7 +333,8 @@ def merge_candidates(current: Project, result: dict) -> Project:
 
 def merge_bass_candidates(current: Project, candidates: list, flags: dict) -> list:
     """Protect edited/deleted time spans even when candidate IDs or grids change."""
-    protected = [event for event in current.bassEvents if event.locked or event.source == "manual"]
+    linked_ids = {a.eventId for a in current.lyricAnchors if a.track == 'bass' and not a.disabled}
+    protected = [event for event in current.bassEvents if event.locked or event.source == "manual" or event.id in linked_ids]
     exclusions = [(event.start, event.end) for event in protected]
     exclusions.extend(tuple(interval) for interval in flags.get("deleted_bass_intervals", []))
     deleted_ids = set(flags.get("deleted_bassEvents", []))

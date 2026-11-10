@@ -61,10 +61,10 @@ class BassScoreUpgradeTests(unittest.TestCase):
         self.assertEqual(project.bassEvents, [])
         self.assertEqual(project.topTrack, "chords")
         self.assertEqual(project.scoreStyle.lyricFontSize, 20)
-        self.assertEqual(project.scoreStyle.lyricPrintSize, 12)
+        self.assertEqual(project.scoreStyle.lyricPrintSize, 18)
         self.assertEqual(project.scoreStyle.colors.mark, "#C62828")
         self.assertTrue(project.scoreStyle.printColor)
-        self.assertEqual(project.scoreStyle.printOrientation, "portrait")
+        self.assertEqual(project.scoreStyle.printOrientation, "landscape")
 
     def test_old_and_partial_clients_preserve_nested_notation_style_and_bass(self):
         group = ManualFill(id="fill", notes=[
@@ -105,7 +105,7 @@ class BassScoreUpgradeTests(unittest.TestCase):
                        {"bassEvents": [event(end=9)]},
                        {"scoreStyle": {"colors": {"mark": "url(x)"}}},
                        {"scoreStyle": {"lyricFontSize": 13}},
-                       {"scoreStyle": {"lyricPrintSize": 21}}):
+                       {"scoreStyle": {"lyricPrintSize": 31}}):
             with self.subTest(values=values), self.assertRaises(ValidationError):
                 Project(id=PROJECT_ID, title="bad", duration=8, **values)
         for target in ("missing", "one"):

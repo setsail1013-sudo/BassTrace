@@ -4,7 +4,7 @@ import { positionToTime,timeToPosition,type BassEvent,type Project } from './mus
 export function mergeAnalysisView(current:Project,incoming:Project,base:Project):Project {
   const equal=(a:unknown,b:unknown)=>JSON.stringify(a)===JSON.stringify(b);
   const next:Project={...incoming};
-  const fields=['title','artist','key','originalKey','sections','lyrics','lyricsOriginal','manualFills','notes','markers','scoreStyle','topTrack'] as const;
+  const fields=['title','artist','key','originalKey','sections','lyrics','lyricsOriginal','manualFills','notes','markers','scoreStyle','topTrack','performanceNotes','lyricAnchors'] as const;
   for(const key of fields) if(!equal(current[key],base[key])) Object.assign(next,{[key]:current[key]});
   const manualGrid=(['bpm','meter','offset','beatTimes'] as const).some(key=>!equal(current[key],base[key]));
   if(manualGrid) for(const key of ['bpm','meter','offset','beatTimes'] as const) Object.assign(next,{[key]:current[key]});

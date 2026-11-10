@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { positionToTime, type Lyric, type Project } from './music.ts';
-import { addManualFill, deleteFillNote, mergeLyricPrevious, moveManualFill, orderedLyrics, packTxtLyrics, rowPercentTime, rowTimePercent, scoreRows, setFillLines, setFillOctave, splitLyric } from './tracks.ts';
+import { addManualFill, deleteFillNote, deleteFillNotes, setFillLinesBatch, mergeLyricPrevious, moveManualFill, orderedLyrics, packTxtLyrics, rowPercentTime, rowTimePercent, scoreRows, setFillLines, setFillOctave, splitLyric } from './tracks.ts';
 
 const base = (): Project => ({ id: 'tracks', title: '三轨测试', artist: '', duration: 16, originalKey: 'C Major', key: 'C Major', bpm: 120, meter: '4/4', offset: 0, beatTimes: [], sections: [], chords: [{ id: 'chord', label: 'Cmaj7', bar: 1, beat: 1, source: 'manual', confidence: 1, locked: true }], lyrics: [], notes: [], markers: [], stems: [], analysis: { state: 'idle', stage: '', progress: 0, warnings: [] }, updatedAt: '', revision: 0, isDemo: false });
 const lyric = (id: string, text: string, start: number, end: number, order?: number): Lyric => ({ id, text, start, end, order, source: 'analysis', locked: false });
@@ -13,6 +13,38 @@ const preserveOtherTracks = (before: Project, after: Project) => {
   assert.equal(after.chords, before.chords); assert.equal(after.notes, before.notes); assert.equal(after.markers, before.markers);
   assert.equal(after.beatTimes, before.beatTimes); assert.equal(after.sections, before.sections);
 };
+
+test('batch delete preserves remaining timestamps and removes links without reconnecting', () => {
+  const p=addManualFill(numbered(),5,'67','g2',['six','seven']);
+  p.manualFills![0].notes[0].notation={connection:{kind:'hammer',targetNoteId:'two'}};
+  const snapshot=JSON.stringify(p);
+  const next=deleteFillNotes(p,[{group:'fill',note:'two'},{group:'g2',note:'six'}]);
+  assert.deepEqual(times(next),[[0,.5],[1,1.5],[1.5,2]]);
+  assert.deepEqual(times(next,1),[[5.5,6]]);
+  assert.equal(next.manualFills![0].notes[0].notation?.connection,null);
+  assert.equal(JSON.stringify(p),snapshot);preserveOtherTracks(p,next);
+  assert.equal(deleteFillNote(p,'missing-group','two'),p);
+});
+
+test('batch underlines reflow each affected suffix once and leave other groups/tracks untouched',()=>{
+  const p=addManualFill(addManualFill(numbered(),4,'56','second',['five','six']),8,'7','untouched',['seven']);
+  const next=setFillLinesBatch(p,[{group:'fill',note:'two'},{group:'fill',note:'four'},{group:'second',note:'six'}],1);
+  assert.deepEqual(times(next),[[0,.5],[.5,.75],[.75,1.25],[1.25,1.5]]);
+  assert.deepEqual(times(next,1),[[4,4.5],[4.5,4.75]]);
+  assert.equal(next.manualFills![2],p.manualFills![2]);preserveOtherTracks(p,next);
+  assert.equal(setFillLinesBatch(next,[{group:'fill',note:'two'}],1),next);
+});
+
+test('batch rhythm changes respect variable 6/8 and fail atomically at the song boundary',()=>{
+  let p=numbered({...base(),meter:'6/8',beatTimes:[0,.2,.45,.8,1,1.4,1.65,2,2.3,2.7,3,3.3]});
+  const next=setFillLinesBatch(p,[{group:'fill',note:'one'},{group:'fill',note:'two'}],2);
+  close(next.manualFills![0].notes[0].end,.1);close(next.manualFills![0].notes[1].start,.1);close(next.manualFills![0].notes[1].end,.2);
+  p=addManualFill(base(),15,'12','edge',['e1','e2']);p=setFillLinesBatch(p,[{group:'edge',note:'e1'},{group:'edge',note:'e2'}],2);
+  p=moveManualFill(p,'edge',15.75);p=addManualFill(p,0,'1','early',['early1']);
+  const snapshot=JSON.stringify(p);
+  assert.throws(()=>setFillLinesBatch(p,[{group:'early',note:'early1'},{group:'edge',note:'e1'}],{delta:-1}),RangeError);
+  assert.equal(JSON.stringify(p),snapshot);
+});
 
 test('TXT retains original line text and packs adjacent widths from zero instead of distributing across song', () => {
   const p = base(), raw = '你好世界\r\n A B \n\n最后一句';
@@ -109,13 +141,13 @@ test('octave dots change only selected notation and never act as duration dots',
   assert.throws(() => setFillOctave(p, 'fill', 'one', 3), RangeError);
 });
 
-test('deleting an internal number closes only its group suffix and deleting final number removes group', () => {
+test('deleting an internal number preserves the remaining timestamps and deleting final number removes group', () => {
   const p = addManualFill(numbered(), 4, '5', 'other', ['five']), result = deleteFillNote(p, 'fill', 'two');
   assert.deepEqual(result.manualFills![0].notes.map(item => item.digit), [1, 3, 4]);
-  assert.deepEqual(times(result), [[0, .5], [.5, 1], [1, 1.5]]);
+  assert.deepEqual(times(result), [[0, .5], [1, 1.5], [1.5, 2]]);
   assert.equal(result.manualFills![0].notes[0], p.manualFills![0].notes[0]); assert.equal(result.manualFills![1], p.manualFills![1]);
   assert.equal(deleteFillNote(p, 'other', 'five').manualFills!.length, 1);
-  assert.deepEqual(times(deleteFillNote(p, 'fill', 'one')), [[0, .5], [.5, 1], [1, 1.5]]);
+  assert.deepEqual(times(deleteFillNote(p, 'fill', 'one')), [[.5, 1], [1, 1.5], [1.5, 2]]);
 });
 
 test('group dragging clamps common delta while preserving exact irregular note durations', () => {
