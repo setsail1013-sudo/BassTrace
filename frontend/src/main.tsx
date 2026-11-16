@@ -9,3 +9,4 @@ import './score-style.css';
 ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><CommandProvider><AccountProvider><App /></AccountProvider></CommandProvider></React.StrictMode>);
 
 import './motion.css';
+import './pedestal.css';
