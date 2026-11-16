@@ -46,12 +46,11 @@
 }
 
 .pdf-output iframe{width:100%;height:50vh;border:1px solid #d2d2d7;border-radius:8px;margin-top:12px}.pdf-error{color:#b42318;font-size:13px;line-height:1.6}.pdf-output>.text-action{margin:10px 0}
-.editable-lyric-track .guitar-chord-mark{position:absolute;z-index:3;display:flex;flex-direction:column;align-items:flex-start;max-width:8em;padding:0 2px 1px;border:0;border-bottom:1px solid transparent;border-radius:0;background:transparent;color:#6b4f2a;font-size:13px;font-weight:600;line-height:1.05;white-space:nowrap;cursor:pointer}
-.editable-lyric-track .guitar-chord-mark small{display:block;margin-top:1px;font-size:9px;font-weight:500;letter-spacing:0;line-height:1.1}
-.editable-lyric-track .guitar-chord-mark.is-candidate{color:#8a5a12;border-bottom-color:#c4a574;border-bottom-style:dashed}
-.editable-lyric-track .guitar-chord-mark.is-confirmed,.editable-lyric-track .guitar-chord-mark.is-manual{color:#6b4f2a;border-bottom-color:#6b4f2a;border-bottom-style:solid}
-.editable-lyric-track button.guitar-chord-mark:hover:not(:disabled),.editable-lyric-track button.guitar-chord-mark:focus-visible{color:#6b4f2a;background:#f6f1e8}
-.editable-lyric-track button.guitar-chord-mark.is-candidate:hover:not(:disabled),.editable-lyric-track button.guitar-chord-mark.is-candidate:focus-visible{color:#8a5a12;background:#f8f1e4}
+.editable-lyric-track .guitar-chord-mark{position:absolute;z-index:3;display:block;max-width:8em;padding:0;border:0;border-radius:0;background:transparent;color:#0B2756;font-size:16px;font-weight:600;line-height:1.1;white-space:nowrap;cursor:pointer;opacity:1}
+.editable-lyric-track .guitar-chord-mark.is-candidate{color:#0B2756;opacity:.7}
+.editable-lyric-track .guitar-chord-mark.is-confirmed,.editable-lyric-track .guitar-chord-mark.is-manual{color:#0B2756;opacity:1}
+.editable-lyric-track button.guitar-chord-mark:hover:not(:disabled),.editable-lyric-track button.guitar-chord-mark:focus-visible{color:#0B2756;background:transparent}
+.editable-lyric-track button.guitar-chord-mark.is-candidate:hover:not(:disabled),.editable-lyric-track button.guitar-chord-mark.is-candidate:focus-visible{color:#0B2756;opacity:.7}
 .guitar-chord-token{margin-top:10px;padding:8px 10px;background:#f7f4ef;border-radius:8px;color:#3f3428;line-height:1.7;font-size:15px}
 .guitar-chord-token mark{background:transparent;color:#8a5a12;font-weight:600;text-decoration:underline;text-underline-offset:3px}
 .guitar-chord-status{display:flex;align-items:flex-start;gap:8px;margin-top:12px;color:#6b5a45;font-size:13px;line-height:1.6}

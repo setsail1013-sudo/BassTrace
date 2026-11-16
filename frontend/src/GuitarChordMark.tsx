@@ -14,12 +14,11 @@ export function GuitarChordMarkButton({ mark, left, top, onEdit }: { mark: Place
     data-status={mark.status}
     data-accepted={candidate ? 'false' : 'true'}
     aria-label={candidate ? `${mark.symbol} 待校对，尚未人工核对` : `${mark.symbol} ${mark.label}`}
-    title={candidate ? `${mark.symbol} · 待校对候选，尚未人工核对` : `${mark.symbol} · ${mark.label}吉他和弦`}
+    title={candidate ? `${mark.symbol} · 待校对，尚未人工核对` : `${mark.symbol} · ${mark.label}`}
     style={{ left, top, '--mark-ratio': String(mark.leftRatio) } as CSSProperties}
     onPointerDown={event => event.stopPropagation()}
     onClick={event => { event.stopPropagation(); onEdit(mark.id); }}
   >
     <span className="guitar-chord-symbol">{mark.symbol}</span>
-    {candidate && <small>待校对</small>}
   </button>;
 }
