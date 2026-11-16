@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import math
+import re
+import unicodedata
 from datetime import datetime, timezone
 from typing import Literal
 
@@ -39,6 +41,63 @@ class Chord(Model):
     source: Literal["demo", "manual", "analysis"] = "manual"
     confidence: float = Field(default=1, ge=0, le=1)
     locked: bool = False
+
+
+_CHORD_SYMBOL = re.compile(
+    r"^[A-G](?:#|b)?"
+    r"(?:maj|min|dim|aug|sus|add|m)?"
+    r"(?:\d{1,2})?"
+    r"(?:sus[24]|add\d{1,2}|maj\d{1,2}|m\d{1,2}|dim\d{1,2}|aug\d{1,2})?"
+    r"(?:(?:#|b)\d{1,2})*"
+    r"(?:\([^)]{1,16}\))?"
+    r"(?:/[A-G](?:#|b)?)?$"
+)
+
+
+def normalize_chord_symbol(value: str) -> str:
+    text = unicodedata.normalize("NFKC", value).strip().replace(" ", "")
+    return text.replace("♯", "#").replace("♭", "b")
+
+
+def valid_chord_symbol(value: str) -> bool:
+    return bool(_CHORD_SYMBOL.fullmatch(value))
+
+
+class GuitarChord(Model):
+    """Lyric-aligned guitar chord from a chart import or a later manual edit.
+
+    This is not a harmony-track event. ``status`` is ``candidate`` until a person
+    confirms or edits it. ``start`` is a snap inside an already saved lyric, or a
+    bar time for an instrumental section, and may be missing.
+    """
+
+    id: str = Field(min_length=1, max_length=120)
+    symbol: str = Field(min_length=1, max_length=40)
+    section: str | None = Field(default=None, max_length=40)
+    lyricId: str | None = Field(default=None, max_length=120)
+    charOffset: int | None = Field(default=None, ge=0)
+    start: float | None = Field(default=None, ge=0)
+    end: float | None = Field(default=None, ge=0)
+    bar: int | None = Field(default=None, ge=1)
+    beat: float | None = Field(default=None, ge=1, le=12)
+    status: Literal["candidate", "confirmed", "manual"] = "candidate"
+    source: Literal["pdf", "manual"] = "pdf"
+
+    @field_validator("symbol")
+    @classmethod
+    def recognized_symbol(cls, value: str) -> str:
+        symbol = normalize_chord_symbol(value)
+        if not valid_chord_symbol(symbol):
+            raise ValueError("和弦标记格式无法识别")
+        return symbol
+
+    @field_validator("section")
+    @classmethod
+    def blank_section(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
 
 
 class BassEvent(Model):
@@ -289,6 +348,8 @@ class Project(Model):
     beatTimes: list[float] = Field(default_factory=list, max_length=200000)
     sections: list[Section] = Field(default_factory=list, max_length=20000)
     chords: list[Chord] = Field(default_factory=list, max_length=100000)
+    # Guitar chart symbols aligned to saved lyrics. Never a bass, fill, or lyric event.
+    guitarChords: list[GuitarChord] = Field(default_factory=list, max_length=100000)
     bassEvents: list[BassEvent] = Field(default_factory=list, max_length=100000)
     topTrack: Literal["bass", "chords"] = "chords"
     scoreStyle: ScoreStyle = Field(default_factory=ScoreStyle)
@@ -332,12 +393,13 @@ class Project(Model):
             raise ValueError("和弦拍点超出当前拍号")
         if self.offset > self.duration:
             raise ValueError("第一拍时间不能超出音频长度")
-        for name in ("sections", "chords", "bassEvents", "lyrics", "notes", "markers", "manualFills", "stems"):
+        for name in ("sections", "chords", "guitarChords", "bassEvents", "lyrics", "notes", "markers", "manualFills", "stems"):
             ids = [item.id for item in getattr(self, name)]
             if len(ids) != len(set(ids)):
                 raise ValueError(f"{name} 存在重复事件 ID")
         self.validate_manual_fills()
         self.validate_bass_events()
+        self.validate_guitar_chords()
         return self
 
     def validate_manual_fills(self) -> None:
@@ -373,6 +435,30 @@ class Project(Model):
     def validate_bass_events(self) -> None:
         if any(event.end > self.duration for event in self.bassEvents):
             raise ValueError("贝斯音名时间必须位于音频范围内")
+
+    def validate_guitar_chords(self) -> None:
+        """Drop lyric links that no longer point at that lyric. Do not move them."""
+        lyrics = {lyric.id: lyric for lyric in self.lyrics}
+        beats_per_bar = int(self.meter.split("/")[0])
+        for chord in self.guitarChords:
+            lyric = lyrics.get(chord.lyricId) if chord.lyricId else None
+            if chord.lyricId is not None and (
+                lyric is None or chord.charOffset is None or chord.charOffset >= len(lyric.text)
+            ):
+                chord.lyricId = None
+                chord.charOffset = None
+            if chord.start is None:
+                chord.end = None
+            if (chord.bar is None) != (chord.beat is None):
+                raise ValueError("吉他和弦的小节和拍点需要同时填写")
+            if chord.beat is not None and chord.beat >= beats_per_bar + 1:
+                raise ValueError("吉他和弦拍点超出当前拍号")
+            if chord.start is not None and chord.start > self.duration:
+                raise ValueError("吉他和弦时间超出音频长度")
+            if chord.end is not None and chord.end > self.duration:
+                raise ValueError("吉他和弦时间超出音频长度")
+            if chord.start is not None and chord.end is not None and chord.end < chord.start:
+                raise ValueError("吉他和弦结束时间不能早于开始时间")
 
 
 class AnalyzeRequest(Model):
