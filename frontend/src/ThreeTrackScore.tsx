@@ -1,11 +1,13 @@
 import { addLyricAnchor,lyricFragments,lyricMarks,removeLyricMark } from './lyric-marks';
 import { topEvents } from './top-track';
 import { Presence } from './motion';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import type { CSSProperties, KeyboardEvent, PointerEvent } from 'react';
 import { Plus, Repeat2, Pencil, Trash2, X, Check } from 'lucide-react';
 import { ChordLane } from './ChordLane';
+import { GuitarChordMarkButton } from './GuitarChordMark';
+import { guitarChordMarkStyle, guitarChordsOnLyric } from './guitar-chords';
 import type { Project, Chord, Lyric, ManualFillNote, Section } from './music';
 import { beatsPerBar, displaySections, positionToTime, timeToPosition, formatTime } from './music';
 import { orderedLyrics, moveLyricWithPush, nudgeLyric, beatIndex, timeAtBeat, type LyricFootprints, splitLyric, mergeLyricPrevious, addManualFill, setFillLinesBatch, setFillOctave, setFillDigit, deleteFillNotes, moveManualFill, scoreRows, rowTimePercent, rowPercentTime } from './tracks';
@@ -17,7 +19,7 @@ import { useCommands, useCommandActions, type Command } from './commands';
 import './three-tracks.css';
 
 type Edit = (fn: (current: Project) => Project) => void;
-type Props = { p: Project; chords: Chord[]; barsPerRow: number; fontSize: number; degree: boolean; time: number; playing: boolean; onEdit: Edit; onChordEdit: (id: string) => void; onNewChord: (bar: number, beat?: number) => void; onNewSection: (bar: number) => void; onSeek: (time: number) => void;onMarkSeek?:(time:number)=>void; onStatus: (text: string) => void; onSectionEdit: (id: string) => void; onLoop: (section: Section) => void };
+type Props = { p: Project; chords: Chord[]; barsPerRow: number; fontSize: number; degree: boolean; time: number; playing: boolean; onEdit: Edit; onChordEdit: (id: string) => void; onGuitarChordEdit: (id: string) => void; onNewChord: (bar: number, beat?: number) => void; onNewSection: (bar: number) => void; onSeek: (time: number) => void;onMarkSeek?:(time:number)=>void; onStatus: (text: string) => void; onSectionEdit: (id: string) => void; onLoop: (section: Section) => void };
 type Drag = { kind: 'lyric' | 'fill'; id: string; initialX: number; initialY: number; grab: number; target: number; moved: boolean; original: Project; widths: LyricFootprints };
 type FillSelection = { group: string; note: string };
 const uid = () => crypto.randomUUID();
@@ -288,7 +290,9 @@ export function ThreeTrackScore(props: Props) {
   }
 
   return <div ref={root} onPointerDownCapture={()=>{lastDrag.current=0;}} tabIndex={-1} data-object-kind={object?.kind} data-object-id={object?.id} className={'three-track-score' + (drag?.moved ? ' is-dragging' : '')} style={{ '--lyric-font': `${scoreStyle.lyricFontSize}px`, '--lyric-print-font': `${scoreStyle.lyricPrintSize}pt` } as CSSProperties} onFocusCapture={event => {
-    const target = event.target as HTMLElement, lyric = target.closest<HTMLElement>('[data-lyric-id]'), chord = target.closest<HTMLElement>('[data-chord-id]'), fill = target.closest<HTMLElement>('[data-note-id]'), section = target.closest<HTMLElement>('[data-section-id]');
+    const target = event.target as HTMLElement;
+    if (target.closest('[data-guitar-chord-id]')) { setObject(null); setSelection(null); return; }
+    const lyric = target.closest<HTMLElement>('[data-lyric-id]'), chord = target.closest<HTMLElement>('[data-chord-id]'), fill = target.closest<HTMLElement>('[data-note-id]'), section = target.closest<HTMLElement>('[data-section-id]');
     if (lyric) { setObject({ kind: 'lyric', id: lyric.dataset.lyricId! }); setSelection(null); }
     else if (chord) { setObject({ kind: 'chord', id: chord.dataset.chordId! }); setSelection(null); }
     else if (fill) { setObject({ kind: 'fill', id: fill.dataset.noteId!, group: fill.dataset.fillId! }); if(!selectedIds.has(fill.dataset.noteId!)) setSelection({ group: fill.dataset.fillId!, note: fill.dataset.noteId! }); }
@@ -344,7 +348,7 @@ export function ThreeTrackScore(props: Props) {
               </div>
               {selection && selectedNote && <div className="fill-technique-tools" role="toolbar" aria-label="加花演奏技法">{techniques.map(({key,shortcut})=><span key={key} title={techniqueHint(key,shortcut)}><button type="button" aria-pressed={key==='cut'||key==='dead'||key==='accent'?!!selectedNote.notation?.[key]:selectedNote.notation?.connection?.kind===key} disabled={!techniqueEnabled(key)} onClick={()=>invoke('fill.technique.'+key)}>{fillTechniqueLabels[key]}<kbd>{shortcut.replace('ArrowUp','↑').replace('ArrowDown','↓')}</kbd></button></span>)}</div>}
             </div>}</Presence>
-            <LyricLane onMarkSeek={props.onMarkSeek??props.onSeek} onEditProject={onEdit} p={view} startBar={row.startBar} endBar={row.endBar} start={start} end={end} fontSize={lyricSize} editing={editingLyric} onEditing={setEditingLyric} onPointerDown={startDrag} onSeek={props.onSeek} onCommit={(id, text) => onEdit(current => current.lyrics.find(l => l.id === id)?.text === text ? current : ({ ...current, lyrics: current.lyrics.map(l => l.id === id ? { ...l, text, locked: true, source: 'manual' } : l) }))} onSplit={split} onMerge={merge} onNudge={nudge}/>
+            <LyricLane onMarkSeek={props.onMarkSeek??props.onSeek} onEditProject={onEdit} onGuitarChordEdit={props.onGuitarChordEdit} p={view} startBar={row.startBar} endBar={row.endBar} start={start} end={end} fontSize={lyricSize} editing={editingLyric} onEditing={setEditingLyric} onPointerDown={startDrag} onSeek={props.onSeek} onCommit={(id, text) => onEdit(current => current.lyrics.find(l => l.id === id)?.text === text ? current : ({ ...current, lyrics: current.lyrics.map(l => l.id === id ? { ...l, text, locked: true, source: 'manual' } : l) }))} onSplit={split} onMerge={merge} onNudge={nudge}/>
           </div>
         </div>;
       })}
@@ -416,14 +420,31 @@ export function FillDigit({ note }: { note: ManualFillNote }) {
   return <span className="fill-symbol"><span className="fill-connection-space"/><span className="fill-technique-marks"><span aria-label={note.notation?.accent ? '重音' : undefined}>{note.notation?.accent ? '>' : ''}</span><span aria-label={note.notation?.cut ? '切音' : undefined}>{note.notation?.cut ? '切' : ''}</span></span><span className="fill-octave above" aria-label={note.octave > 0 ? `高 ${note.octave} 个八度` : undefined}>{note.digit !== 0 && !dead && note.octave > 0 ? '·'.repeat(note.octave) : '\u00a0'}</span><span className={'fill-number' + (dead ? ' fill-dead' : '')} aria-label={dead ? '闷音 / 死音' : undefined}>{dead ? '×' : note.digit}</span><span className="fill-underlines" data-lines={note.lines}>{Array.from({ length: note.lines }, (_, i) => <i key={i}/>)}</span><span className="fill-octave below" aria-label={note.octave < 0 ? `低 ${-note.octave} 个八度` : undefined}>{note.digit !== 0 && !dead && note.octave < 0 ? '·'.repeat(-note.octave) : '\u00a0'}</span></span>;
 }
 
-function LyricLane({ onMarkSeek,onEditProject,p, startBar, endBar, start, end, fontSize, editing, onEditing, onPointerDown, onSeek, onCommit, onSplit, onMerge, onNudge }: { onMarkSeek:(time:number)=>void;onEditProject:(fn:(p:Project)=>Project)=>void;p: Project; startBar: number; endBar: number; start: number; end: number; fontSize: number; editing: string | null; onEditing: (id: string | null) => void; onPointerDown: (event: PointerEvent<HTMLElement>, kind: Drag['kind'], id: string, time: number) => void; onSeek: (time: number) => void; onCommit: (id: string, text: string) => void; onSplit: (id: string, caret: number, text: string) => boolean; onMerge: (id: string, text: string) => boolean; onNudge: (id: string, beats: number, text: string) => boolean }) {
+function LyricLane({ onMarkSeek,onEditProject,onGuitarChordEdit,p, startBar, endBar, start, end, fontSize, editing, onEditing, onPointerDown, onSeek, onCommit, onSplit, onMerge, onNudge }: { onMarkSeek:(time:number)=>void;onEditProject:(fn:(p:Project)=>Project)=>void;onGuitarChordEdit:(id:string)=>void;p: Project; startBar: number; endBar: number; start: number; end: number; fontSize: number; editing: string | null; onEditing: (id: string | null) => void; onPointerDown: (event: PointerEvent<HTMLElement>, kind: Drag['kind'], id: string, time: number) => void; onSeek: (time: number) => void; onCommit: (id: string, text: string) => void; onSplit: (id: string, caret: number, text: string) => boolean; onMerge: (id: string, text: string) => boolean; onNudge: (id: string, beats: number, text: string) => boolean }) {
   const lyrics = orderedLyrics(p).filter(l => l.start >= start - 1e-8 && l.start < end - 1e-8);
   const items = lyrics.map(l => ({ id: l.id, text: l.text, percent: rowTimePercent(p, startBar, endBar, Math.max(start, l.start)) }));
   const layout = useLaneLayout(JSON.stringify(items), fontSize, items, fontSize * 1.55, 0);
-  return <div className="editable-lyric-track" data-empty={!lyrics.length} data-track="lyric" data-start-bar={startBar} data-end-bar={endBar} ref={layout.ref} style={{ minHeight: layout.height + (editing&&lyrics.some(l=>l.id===editing)?270:10) }}>
+  const chordPad = 64;
+  let shift = 0;
+  const tops = new Map<string, number>();
+  for (const lyric of lyrics) {
+    const base = layout.placed.find(item => item.id === lyric.id)?.top ?? 0;
+    if (guitarChordsOnLyric(p, lyric).length) shift += chordPad;
+    tops.set(lyric.id, base + shift);
+  }
+  return <div className="editable-lyric-track" data-empty={!lyrics.length} data-guitar-chords={shift > 0} data-track="lyric" data-start-bar={startBar} data-end-bar={endBar} ref={layout.ref} style={{ minHeight: layout.height + shift + (editing&&lyrics.some(l=>l.id===editing)?270:10) }}>
     {lyrics.map(l => {
-      const at = layout.placed.find(item => item.id === l.id), style = { left: `${at?.left ?? rowTimePercent(p, startBar, endBar, l.start)}%`, top: at?.top ?? 0, width: `${at?.width ?? 100}%` };
-      return editing === l.id ? <InlineLyric project={p} onEditProject={onEditProject} key={l.id} lyric={l} style={style} onCommit={text => onCommit(l.id, text)} onClose={() => onEditing(null)} onSplit={(caret, text) => onSplit(l.id, caret, text)} onMerge={text => onMerge(l.id, text)} onNudge={(beats, text) => onNudge(l.id, beats, text)}/> : <button key={l.id} className="lyric track-lyric" data-lyric-id={l.id} data-start={l.start} data-end={l.end} style={{...style,'--track-left':style.left} as CSSProperties} onPointerDown={event => onPointerDown(event, 'lyric', l.id, l.start)} onClick={() => onSeek(l.start)} onDoubleClick={() => onEditing(l.id)} title={`${l.text} · ${formatTime(l.start)} · 双击 / F2 编辑 · 拖动碰到才推`}>{lyricFragments(p,l).map((part,i)=>part.mark?<span key={i} className="lyric-change-mark" data-linked-event={part.mark.eventId} title="换音字词 · 点击试听关联位置" onClick={e=>{e.stopPropagation();onMarkSeek(part.mark!.time);}}>{part.text}</span>:part.text)}</button>;
+      const at = layout.placed.find(item => item.id === l.id);
+      const top = tops.get(l.id) ?? 0;
+      const style = { left: `${at?.left ?? rowTimePercent(p, startBar, endBar, l.start)}%`, top, width: `${at?.width ?? 100}%` };
+      const marks = guitarChordsOnLyric(p, l);
+      return <Fragment key={l.id}>
+        {marks.map(mark => {
+          const position = guitarChordMarkStyle(at?.left ?? rowTimePercent(p, startBar, endBar, l.start), at?.width ?? 100, top, mark);
+          return <GuitarChordMarkButton key={mark.id} mark={mark} left={position.left} top={position.top} onEdit={onGuitarChordEdit} />;
+        })}
+        {editing === l.id ? <InlineLyric project={p} onEditProject={onEditProject} lyric={l} style={style} onCommit={text => onCommit(l.id, text)} onClose={() => onEditing(null)} onSplit={(caret, text) => onSplit(l.id, caret, text)} onMerge={text => onMerge(l.id, text)} onNudge={(beats, text) => onNudge(l.id, beats, text)}/> : <button className="lyric track-lyric" data-lyric-id={l.id} data-start={l.start} data-end={l.end} style={{...style,'--track-left':style.left} as CSSProperties} onPointerDown={event => onPointerDown(event, 'lyric', l.id, l.start)} onClick={() => onSeek(l.start)} onDoubleClick={() => onEditing(l.id)} title={`${l.text} · ${formatTime(l.start)} · 双击 / F2 编辑 · 拖动碰到才推`}>{lyricFragments(p,l).map((part,i)=>part.mark?<span key={i} className="lyric-change-mark" data-linked-event={part.mark.eventId} title="换音字词 · 点击试听关联位置" onClick={e=>{e.stopPropagation();onMarkSeek(part.mark!.time);}}>{part.text}</span>:part.text)}</button>}
+      </Fragment>;
     })}
   </div>;
 }

@@ -7,6 +7,27 @@ export type FillConnectionKind = 'slideUp' | 'slideDown' | 'hammer' | 'pull' | '
 export interface FillNotation { cut?: boolean; dead?: boolean; accent?: boolean; connection?: { kind: FillConnectionKind; targetNoteId: string } | null }
 export interface ScoreStyle { lyricFontSize: number; lyricPrintSize: number; colors: { lyrics: string; top: string; fill: string; mark: string }; printColor: boolean; printOrientation?: 'portrait' | 'landscape'; printPreset?: 'large' | 'custom'; topPrintSize?: number; fillPrintSize?: number; printBarsPerRow?: 2 | 4 }
 export interface Lyric { id: string; text: string; start: number; end: number; source: Source; locked: boolean; order?: number | null }
+/** `candidate` is the unreviewed import. It is never an accepted alignment. */
+export type GuitarChordStatus = 'candidate' | 'confirmed' | 'manual';
+export type GuitarChordSource = 'pdf' | 'manual';
+/**
+ * Guitar chart symbol aligned to a saved lyric. Independent from bass-note
+ * events and from the harmony `chords` list. `charOffset` counts Unicode
+ * code points, matching Python `len(text)`, not the UTF-16 caret used by lyric anchors.
+ */
+export interface GuitarChord {
+  id: string;
+  symbol: string;
+  section: string | null;
+  lyricId: string | null;
+  charOffset: number | null;
+  start: number | null;
+  end: number | null;
+  bar: number | null;
+  beat: number | null;
+  status: GuitarChordStatus;
+  source: GuitarChordSource;
+}
 export interface LyricAnchor { id:string; lyricId:string; startOffset:number; endOffset:number; text:string; eventId:string; track:'bass'|'chords';disabled?:boolean }
 export interface FeatureTask { state:'idle'|'running'|'complete'|'error'; stage:string; progress:number; warnings:string[] }
 export interface KeyAnalysis extends FeatureTask { candidates:Array<{key:string;score:number}>; detectedKey:string|null; confirmed:boolean }
@@ -30,6 +51,8 @@ export interface Project {
   lyricsOriginal?: string; lyricAlignment?: LyricAlignment;
   manualFills?: ManualFill[];
   bassEvents?: BassEvent[]; topTrack?: 'bass' | 'chords'; scoreStyle?: ScoreStyle;
+  /** Lyric-aligned guitar chords. Absent on projects saved before this track existed. */
+  guitarChords?: GuitarChord[];
 }
 export interface Position { bar: number; beat: number }
 
@@ -252,7 +275,7 @@ export function transposeProject(p: Project, steps: number): Project {
     return copy;
   });
   // Revision is the server's persisted version, not a client edit counter.
-  return { ...p, key, chords: p.chords.map(chord => ({ ...chord, label: shiftedChord(chord.label, amount, flats) })), bassEvents: p.bassEvents?.map(event => ({ ...event, pitchClass: mod(event.pitchClass + amount) })), notes: assignTab(notes), updatedAt: new Date().toISOString() };
+  return { ...p, key, chords: p.chords.map(chord => ({ ...chord, label: shiftedChord(chord.label, amount, flats) })), bassEvents: p.bassEvents?.map(event => ({ ...event, pitchClass: mod(event.pitchClass + amount) })), guitarChords: p.guitarChords?.map(chord => ({ ...chord, symbol: shiftedChord(chord.symbol, amount, flats) })), notes: assignTab(notes), updatedAt: new Date().toISOString() };
 }
 
 export function parseLrc(text: string, duration: number): Lyric[] {
