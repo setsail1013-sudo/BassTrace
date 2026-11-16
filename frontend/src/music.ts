@@ -7,28 +7,26 @@ export type FillConnectionKind = 'slideUp' | 'slideDown' | 'hammer' | 'pull' | '
 export interface FillNotation { cut?: boolean; dead?: boolean; accent?: boolean; connection?: { kind: FillConnectionKind; targetNoteId: string } | null }
 export interface ScoreStyle { lyricFontSize: number; lyricPrintSize: number; colors: { lyrics: string; top: string; fill: string; mark: string }; printColor: boolean; printOrientation?: 'portrait' | 'landscape'; printPreset?: 'large' | 'custom'; topPrintSize?: number; fillPrintSize?: number; printBarsPerRow?: 2 | 4 }
 export interface Lyric { id: string; text: string; start: number; end: number; source: Source; locked: boolean; order?: number | null }
-/** Proof state for an imported guitar chord. Pending marks are candidates, not accepted accuracy. */
-export type GuitarChordProof = 'pending' | 'confirmed';
-export type GuitarChordSource = 'import' | 'manual';
-/** UTF-16 lyric caret plus the character that was actually aligned. */
-export interface GuitarChordAlignment { lyricId: string; charOffset: number; token: string }
-/** Guitar chord sitting on a lyric character. Independent from bass-note and harmony `chords`. */
+/** `candidate` is the unreviewed import. It is never an accepted alignment. */
+export type GuitarChordStatus = 'candidate' | 'confirmed' | 'manual';
+export type GuitarChordSource = 'pdf' | 'manual';
+/**
+ * Guitar chart symbol aligned to a saved lyric. Independent from bass-note
+ * events and from the harmony `chords` list. `charOffset` counts Unicode
+ * code points, matching Python `len(text)`, not the UTF-16 caret used by lyric anchors.
+ */
 export interface GuitarChord {
   id: string;
   symbol: string;
-  time?: number;
-  alignment?: GuitarChordAlignment;
-  section?: string;
-  proof: GuitarChordProof;
+  section: string | null;
+  lyricId: string | null;
+  charOffset: number | null;
+  start: number | null;
+  end: number | null;
+  bar: number | null;
+  beat: number | null;
+  status: GuitarChordStatus;
   source: GuitarChordSource;
-  importId?: string;
-}
-export interface GuitarChordImportMeta {
-  importId: string;
-  filename?: string;
-  importedAt: string;
-  status: 'pending';
-  warning?: string;
 }
 export interface LyricAnchor { id:string; lyricId:string; startOffset:number; endOffset:number; text:string; eventId:string; track:'bass'|'chords';disabled?:boolean }
 export interface FeatureTask { state:'idle'|'running'|'complete'|'error'; stage:string; progress:number; warnings:string[] }
@@ -55,7 +53,6 @@ export interface Project {
   bassEvents?: BassEvent[]; topTrack?: 'bass' | 'chords'; scoreStyle?: ScoreStyle;
   /** Lyric-aligned guitar chords. Absent on projects saved before this track existed. */
   guitarChords?: GuitarChord[];
-  guitarChordImport?: GuitarChordImportMeta | null;
 }
 export interface Position { bar: number; beat: number }
 

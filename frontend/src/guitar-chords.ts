@@ -1,47 +1,38 @@
-/** Lyric-aligned guitar chords.
+/** Lyric-aligned guitar chords from `POST /api/projects/{id}/chords/import-pdf`.
 
-These are not the top-track bass names (`bassEvents`) and not the legacy
-harmony list (`chords`). A chord is drawn above the lyric character named by
-`alignment`. Import results stay `pending` until the user confirms or edits them.
-
-Backend contract this client consumes (the route may not exist yet):
-
-`POST /api/projects/{projectId}/guitar-chords/import`
-
-- `credentials: "include"` so a local 127.0.0.1 service on another port still
-  receives the session cookie. The app calls the same-origin `/api` path, which
-  the dev server proxies to `127.0.0.1:8000`.
-- `multipart/form-data` with `file` (PDF) and `revision` (current project revision).
-- Do not set Content-Type; the browser supplies the multipart boundary.
-- Success `200` is candidates only. This client forces `proof: "pending"` even
-  if a payload says otherwise. It does not treat the response as a full Project.
-- Error JSON uses FastAPI's `detail` string (Chinese) plus optional `code`:
-  `unreadable_pdf`, `lyrics_mismatch`, `wrong_song`, `parse_error`.
-- The merge keeps confirmed guitar chords and does not rewrite lyrics, bass
-  notes, fills, or the top-track chord list. Pending guitar chords may be replaced.
-- Persistence: `PUT /api/projects/{id}` should store and return optional
-  `guitarChords` and `guitarChordImport`. Until that field exists, the client
-  keeps the in-memory track and a local cache when the response omits it.
+The saved project is the source of truth. Import writes `guitarChords` on the
+server and returns that project. `candidate` chords are 待校对 and are not
+accepted accuracy. `confirmed` and `manual` chords survive re-import.
+`charOffset` is a Unicode code point index, the same count as Python `len`.
  */
-import type { GuitarChord, GuitarChordAlignment, GuitarChordImportMeta, GuitarChordProof, Lyric, Project } from './music.ts';
+import type { GuitarChord, GuitarChordSource, GuitarChordStatus, Lyric, Project } from './music.ts';
 
-export interface GuitarChordCandidate {
-  id?: string;
-  symbol: string;
-  lyricId?: string;
-  charOffset?: number;
-  token?: string;
-  time?: number;
-  section?: string;
-}
+export const GUITAR_CHORD_IMPORT_PATH = (projectId: string) => `/api/projects/${encodeURIComponent(projectId)}/chords/import-pdf`;
+export const GUITAR_CHORD_PATCH_PATH = (projectId: string, chordId: string) => `/api/projects/${encodeURIComponent(projectId)}/guitar-chords/${encodeURIComponent(chordId)}`;
+
+/** Shown with every successful import. The server returns this exact sentence. */
+export const GUITAR_CHORD_IMPORT_NOTE = '这些和弦来自本地版面提取，尚未经过人工核对，不能视为已验收的识别准确率。';
 
 export interface GuitarChordImportResult {
-  importId: string;
-  filename?: string;
-  importedAt: string;
-  status: 'pending';
-  warning?: string;
-  chords: GuitarChordCandidate[];
+  note: string;
+  warnings: string[];
+  added: GuitarChord[];
+  preservedIds: string[];
+  untimedIds: string[];
+  project: Project;
+}
+
+export interface GuitarChordPatchBody {
+  symbol?: string;
+  section?: string | null;
+  lyricId?: string | null;
+  charOffset?: number | null;
+  start?: number | null;
+  end?: number | null;
+  bar?: number | null;
+  beat?: number | null;
+  status?: GuitarChordStatus;
+  revision: number;
 }
 
 export interface PlacedGuitarChord {
@@ -50,146 +41,95 @@ export interface PlacedGuitarChord {
   lyricId: string;
   charOffset: number;
   token: string;
-  proof: GuitarChordProof;
+  status: GuitarChordStatus;
   leftRatio: number;
   widthRatio: number;
-  section?: string;
-  /** Visible proof label. Pending is never an acceptance claim. */
-  label: '待校对' | '已校对';
+  section: string | null;
+  /** Visible status. A candidate is never labeled as accepted. */
+  label: '待校对' | '已确认' | '已手改';
 }
 
-export class GuitarChordImportError extends Error {
+export class GuitarChordRequestError extends Error {
   readonly detail: string;
-  readonly code: string;
-  constructor(detail: string, code = 'parse_error') {
+  readonly status: number;
+  constructor(detail: string, status = 0) {
     super(detail);
-    this.name = 'GuitarChordImportError';
+    this.name = 'GuitarChordRequestError';
     this.detail = detail;
-    this.code = code;
+    this.status = status;
   }
 }
 
-export const GUITAR_CHORD_IMPORT_PATH = (projectId: string) => `/api/projects/${encodeURIComponent(projectId)}/guitar-chords/import`;
+const NETWORK_DETAIL = '暂时无法连接本地服务，没有改动现有内容。';
+const EMPTY_FILE_DETAIL = '和弦谱文件为空。';
 
-export const GUITAR_CHORD_FAILURES = {
-  unreadable_pdf: '这份 PDF 是打印件，没有可提取的文字，无法读取和弦。',
-  lyrics_mismatch: '谱面歌词和当前工程的歌词对不上，已停止导入，没有改动现有内容。',
-  wrong_song: '这份和弦谱不像当前这首歌，已停止导入，没有改动现有内容。',
-  parse_error: '和弦谱解析失败，没有改动现有歌词、贝斯音名或已校对和弦。',
-  not_ready: '和弦谱导入接口尚未就绪。没有改动现有歌词、贝斯音名或和弦。',
-  network: '暂时无法连接本地服务，没有改动现有歌词、贝斯音名或和弦。',
-  empty_file: '这个 PDF 是空文件，没有改动现有内容。',
-  not_pdf: '请选择 PDF 和弦谱。这次没有上传，也没有改动现有内容。',
-} as const;
-
-const CACHE_PREFIX = 'basstrace.guitar-chords.v1.';
-
-export interface GuitarChordStore {
-  getItem(key: string): string | null;
-  setItem(key: string, value: string): void;
+export function guitarChordStatusLabel(status: GuitarChordStatus): PlacedGuitarChord['label'] {
+  if (status === 'confirmed') return '已确认';
+  if (status === 'manual') return '已手改';
+  return '待校对';
 }
 
-export function guitarChordStatusLabel(proof: GuitarChordProof): '待校对' | '已校对' {
-  return proof === 'confirmed' ? '已校对' : '待校对';
+export function isProtectedGuitarChord(chord: Pick<GuitarChord, 'status'>): boolean {
+  return chord.status === 'confirmed' || chord.status === 'manual';
 }
 
-/** Root letter plus a quality such as m, 7, maj7, sus4, or a slash bass. */
-export function normalizeGuitarChordSymbol(symbol: string): string | null {
-  const trimmed = symbol.trim();
-  if (!trimmed || trimmed.length > 40 || /\s/u.test(trimmed)) return null;
-  const match = /^([A-Ga-g])([#b♯♭]?)(.*)$/u.exec(trimmed);
-  if (!match) return null;
-  const rest = match[3];
-  if (rest && !/^[A-Za-z0-9#b♯♭()+\-/]+$/u.test(rest)) return null;
-  return match[1].toUpperCase() + match[2].replace('♯', '#').replace('♭', 'b') + rest;
+export function codePoints(text: string): string[] {
+  return Array.from(text);
 }
 
-export function rejectChordChartFile(file: Pick<File, 'name' | 'type' | 'size'>): string | null {
-  const name = file.name.toLowerCase();
-  if (!name.endsWith('.pdf') && file.type !== 'application/pdf') return GUITAR_CHORD_FAILURES.not_pdf;
-  if (!file.size) return GUITAR_CHORD_FAILURES.empty_file;
-  return null;
-}
-
-function isHighSurrogate(char: string | undefined): boolean {
-  return !!char && char.charCodeAt(0) >= 0xD800 && char.charCodeAt(0) <= 0xDBFF;
-}
-function isLowSurrogate(char: string | undefined): boolean {
-  return !!char && char.charCodeAt(0) >= 0xDC00 && char.charCodeAt(0) <= 0xDFFF;
-}
 function unitWidth(character: string): number {
   if (/\s/u.test(character)) return 0.33;
   if (/^[\u0000-\u007f]$/u.test(character)) return 0.55;
   return 1;
 }
 
-/** Cumulative display width at each UTF-16 index, using the lyric packer's character weights. */
-function widthPrefix(text: string): number[] {
-  const prefix = [0];
-  let index = 0;
-  let total = 0;
-  while (index < text.length) {
-    const size = isHighSurrogate(text[index]) && isLowSurrogate(text[index + 1]) ? 2 : 1;
-    total += unitWidth(text.slice(index, index + size));
-    for (let step = 0; step < size; step++) prefix.push(total);
-    index += size;
-  }
-  return prefix;
-}
-
+/** `charOffset` selects one code point. Ordinary CJK indexes match a JavaScript index. */
 export function lyricCharacterAt(text: string, charOffset: number): { token: string; leftRatio: number; widthRatio: number } | null {
-  if (!Number.isInteger(charOffset) || charOffset < 0 || charOffset >= text.length) return null;
-  if (isLowSurrogate(text[charOffset]) && isHighSurrogate(text[charOffset - 1])) return null;
-  const size = isHighSurrogate(text[charOffset]) && isLowSurrogate(text[charOffset + 1]) ? 2 : 1;
-  const prefix = widthPrefix(text);
-  const total = prefix[text.length] || 1;
-  const start = prefix[charOffset] ?? 0;
-  const end = prefix[charOffset + size] ?? start;
-  return { token: text.slice(charOffset, charOffset + size), leftRatio: start / total, widthRatio: Math.max(0, end - start) / total };
+  const chars = codePoints(text);
+  if (!Number.isInteger(charOffset) || charOffset < 0 || charOffset >= chars.length) return null;
+  const widths = chars.map(unitWidth);
+  const total = widths.reduce((sum, width) => sum + width, 0) || 1;
+  const start = widths.slice(0, charOffset).reduce((sum, width) => sum + width, 0);
+  return { token: chars[charOffset], leftRatio: start / total, widthRatio: widths[charOffset] / total };
 }
 
 export function stepGuitarChordOffset(text: string, charOffset: number, direction: -1 | 1): number | null {
-  if (!text.length) return null;
-  if (direction > 0) {
-    const current = lyricCharacterAt(text, charOffset);
-    const next = charOffset + (current?.token.length ?? 1);
-    return lyricCharacterAt(text, next) ? next : null;
-  }
-  if (charOffset <= 0) return null;
-  let previous = charOffset - 1;
-  if (isLowSurrogate(text[previous]) && isHighSurrogate(text[previous - 1])) previous -= 1;
-  return lyricCharacterAt(text, previous) ? previous : null;
+  const chars = codePoints(text);
+  if (!chars.length) return null;
+  const next = charOffset + direction;
+  return next >= 0 && next < chars.length ? next : null;
 }
 
-function parseAlignment(value: unknown): GuitarChordAlignment | undefined {
-  if (!value || typeof value !== 'object') return undefined;
-  const row = value as Record<string, unknown>;
-  if (typeof row.lyricId !== 'string' || !row.lyricId || !Number.isInteger(row.charOffset) || (row.charOffset as number) < 0) return undefined;
-  if (typeof row.token !== 'string' || !row.token) return undefined;
-  return { lyricId: row.lyricId, charOffset: row.charOffset as number, token: row.token };
+function finiteOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
 function parseStoredGuitarChord(entry: unknown): GuitarChord | null {
   if (!entry || typeof entry !== 'object') return null;
   const row = entry as Record<string, unknown>;
   if (typeof row.id !== 'string' || !row.id.trim()) return null;
-  const symbol = typeof row.symbol === 'string' ? normalizeGuitarChordSymbol(row.symbol) : null;
-  if (!symbol) return null;
-  if (row.proof !== 'pending' && row.proof !== 'confirmed') return null;
-  if (row.source !== 'import' && row.source !== 'manual') return null;
+  if (typeof row.symbol !== 'string' || !row.symbol.trim() || row.symbol.length > 40) return null;
+  if (row.status !== 'candidate' && row.status !== 'confirmed' && row.status !== 'manual') return null;
+  if (row.source !== 'pdf' && row.source !== 'manual') return null;
+  const section = typeof row.section === 'string' && row.section.trim() ? row.section : null;
+  const lyricId = typeof row.lyricId === 'string' && row.lyricId ? row.lyricId : null;
+  const charOffset = Number.isInteger(row.charOffset) && (row.charOffset as number) >= 0 ? row.charOffset as number : null;
   return {
     id: row.id,
-    symbol,
-    proof: row.proof,
-    source: row.source,
-    alignment: parseAlignment(row.alignment),
-    time: typeof row.time === 'number' && Number.isFinite(row.time) ? row.time : undefined,
-    section: typeof row.section === 'string' && row.section.trim() ? row.section.trim().slice(0, 40) : undefined,
-    importId: typeof row.importId === 'string' && row.importId ? row.importId : undefined,
+    symbol: row.symbol,
+    section,
+    lyricId,
+    charOffset,
+    start: finiteOrNull(row.start),
+    end: finiteOrNull(row.end),
+    bar: Number.isInteger(row.bar) && (row.bar as number) >= 1 ? row.bar as number : null,
+    beat: finiteOrNull(row.beat),
+    status: row.status,
+    source: row.source as GuitarChordSource,
   };
 }
 
-/** Missing or malformed chord data opens as an empty track instead of failing the project. */
+/** A project saved before guitar chords existed opens with an empty list. */
 export function readGuitarChords(project: { guitarChords?: unknown }): GuitarChord[] {
   if (!Array.isArray(project.guitarChords)) return [];
   const seen = new Set<string>();
@@ -203,148 +143,25 @@ export function readGuitarChords(project: { guitarChords?: unknown }): GuitarCho
   return chords;
 }
 
-export function readGuitarChordImport(project: { guitarChordImport?: unknown }): GuitarChordImportMeta | null {
-  const value = project.guitarChordImport;
-  if (!value || typeof value !== 'object') return null;
-  const row = value as Record<string, unknown>;
-  if (typeof row.importId !== 'string' || !row.importId.trim()) return null;
-  return {
-    importId: row.importId.trim(),
-    filename: typeof row.filename === 'string' ? row.filename : undefined,
-    importedAt: typeof row.importedAt === 'string' ? row.importedAt : '',
-    status: 'pending',
-    warning: typeof row.warning === 'string' ? row.warning : undefined,
-  };
-}
-
-function browserStore(): GuitarChordStore | null {
-  try {
-    if (typeof localStorage === 'undefined') return null;
-    const probe = '__basstrace_guitar_probe__';
-    localStorage.setItem(probe, '1');
-    localStorage.removeItem(probe);
-    return localStorage;
-  } catch {
-    return null;
-  }
-}
-
-function readCache(store: GuitarChordStore | null, projectId: string): { guitarChords: GuitarChord[]; guitarChordImport: GuitarChordImportMeta | null } | null {
-  if (!store) return null;
-  try {
-    const raw = store.getItem(CACHE_PREFIX + projectId);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as { guitarChords?: unknown; guitarChordImport?: unknown };
-    return { guitarChords: readGuitarChords(parsed), guitarChordImport: readGuitarChordImport(parsed) };
-  } catch {
-    return null;
-  }
-}
-
-export function cacheGuitarChords(project: Pick<Project, 'id' | 'guitarChords' | 'guitarChordImport'>, store: GuitarChordStore | null = browserStore()): void {
-  if (!store || !project.id) return;
-  try {
-    store.setItem(CACHE_PREFIX + project.id, JSON.stringify({
-      guitarChords: readGuitarChords(project),
-      guitarChordImport: readGuitarChordImport(project),
-    }));
-  } catch {
-    /* a full cache must not block editing */
-  }
-}
-
-/** Keep guitar chords when a server payload was saved by a backend that does not know this field yet. */
-export function projectFromServer(previous: Project | null, incoming: Project, store: GuitarChordStore | null = browserStore()): Project {
-  if (Object.prototype.hasOwnProperty.call(incoming, 'guitarChords')) {
-    const next = { ...incoming, guitarChords: readGuitarChords(incoming), guitarChordImport: readGuitarChordImport(incoming) };
-    cacheGuitarChords(next, store);
-    return next;
-  }
-  if (previous && previous.id === incoming.id && Object.prototype.hasOwnProperty.call(previous, 'guitarChords')) {
-    const next = { ...incoming, guitarChords: readGuitarChords(previous), guitarChordImport: readGuitarChordImport(previous) };
-    cacheGuitarChords(next, store);
-    return next;
-  }
-  const cached = readCache(store, incoming.id);
-  if (cached) return { ...incoming, guitarChords: cached.guitarChords, guitarChordImport: cached.guitarChordImport };
-  return { ...incoming, guitarChords: [] };
-}
-
-function resolveAlignment(project: Project, candidate: GuitarChordCandidate): GuitarChordAlignment | undefined {
-  if (!candidate.lyricId || !Number.isInteger(candidate.charOffset)) return undefined;
-  const lyric = project.lyrics.find(item => item.id === candidate.lyricId);
-  const at = lyric ? lyricCharacterAt(lyric.text, candidate.charOffset as number) : null;
-  if (!lyric || !at) return undefined;
-  if (candidate.token && candidate.token !== at.token) return undefined;
-  return { lyricId: lyric.id, charOffset: candidate.charOffset as number, token: at.token };
-}
-
-function anchorKey(alignment: GuitarChordAlignment | undefined): string | null {
-  return alignment ? `${alignment.lyricId}:${alignment.charOffset}:${alignment.token}` : null;
-}
-
-/** Replace pending candidates. Confirmed guitar chords and every other track stay. */
-export function mergeGuitarChordImport(project: Project, result: GuitarChordImportResult, idFactory: () => string = () => crypto.randomUUID()): Project {
-  const existing = readGuitarChords(project);
-  const confirmed = existing.filter(chord => chord.proof === 'confirmed');
-  const usedIds = new Set(confirmed.map(chord => chord.id));
-  const protectedAnchors = new Set(confirmed.map(chord => anchorKey(chord.alignment)).filter((key): key is string => !!key));
-  const candidates: GuitarChord[] = [];
-  for (const candidate of result.chords) {
-    const symbol = normalizeGuitarChordSymbol(candidate.symbol);
-    if (!symbol) continue;
-    let id = candidate.id?.trim() || idFactory();
-    if (usedIds.has(id)) id = `${idFactory()}-${candidates.length + confirmed.length + 1}`;
-    const alignment = resolveAlignment(project, { ...candidate, symbol });
-    const anchor = anchorKey(alignment);
-    if (anchor && protectedAnchors.has(anchor)) continue;
-    usedIds.add(id);
-    if (anchor) protectedAnchors.add(anchor);
-    candidates.push({
-      id,
-      symbol,
-      proof: 'pending',
-      source: 'import',
-      importId: result.importId,
-      alignment,
-      time: candidate.time,
-      section: candidate.section?.trim().slice(0, 40) || undefined,
-    });
-  }
-  return {
-    ...project,
-    lyrics: project.lyrics,
-    chords: project.chords,
-    bassEvents: project.bassEvents,
-    manualFills: project.manualFills,
-    notes: project.notes,
-    guitarChords: [...confirmed, ...candidates],
-    guitarChordImport: {
-      importId: result.importId,
-      filename: result.filename,
-      importedAt: result.importedAt,
-      status: 'pending',
-      warning: result.warning?.trim() || '导入结果是待校对候选，自动对齐不代表已经准确。',
-    },
-  };
+export function normalizeGuitarChords<T extends Project>(project: T): T {
+  return { ...project, guitarChords: readGuitarChords(project) };
 }
 
 export function placeGuitarChord(lyric: Pick<Lyric, 'id' | 'text'>, chord: GuitarChord): PlacedGuitarChord | null {
-  const alignment = chord.alignment;
-  if (!alignment || alignment.lyricId !== lyric.id) return null;
-  const at = lyricCharacterAt(lyric.text, alignment.charOffset);
-  if (!at || at.token !== alignment.token) return null;
+  if (!chord.lyricId || chord.lyricId !== lyric.id || chord.charOffset === null) return null;
+  const at = lyricCharacterAt(lyric.text, chord.charOffset);
+  if (!at) return null;
   return {
     id: chord.id,
     symbol: chord.symbol,
     lyricId: lyric.id,
-    charOffset: alignment.charOffset,
+    charOffset: chord.charOffset,
     token: at.token,
-    proof: chord.proof,
+    status: chord.status,
     leftRatio: at.leftRatio,
     widthRatio: at.widthRatio,
     section: chord.section,
-    label: guitarChordStatusLabel(chord.proof),
+    label: guitarChordStatusLabel(chord.status),
   };
 }
 
@@ -356,7 +173,7 @@ export function guitarChordsOnLyric(project: Pick<Project, 'guitarChords'>, lyri
 }
 
 export function isGuitarChordPlaced(project: Project, chord: GuitarChord): boolean {
-  const lyric = project.lyrics.find(item => item.id === chord.alignment?.lyricId);
+  const lyric = project.lyrics.find(item => item.id === chord.lyricId);
   return !!lyric && !!placeGuitarChord(lyric, chord);
 }
 
@@ -367,58 +184,9 @@ export function guitarChordMarkStyle(lyricLeftPercent: number, lyricWidthPercent
   };
 }
 
-export interface GuitarChordPatch {
-  symbol?: string;
-  lyricId?: string;
-  charOffset?: number;
-  section?: string | null;
-  time?: number | null;
-}
-
-function sameAlignment(a: GuitarChordAlignment | undefined, b: GuitarChordAlignment | undefined): boolean {
-  return a?.lyricId === b?.lyricId && a?.charOffset === b?.charOffset && a?.token === b?.token;
-}
-
-/** Editing a chord confirms it and leaves every other track on the same arrays. */
-export function updateGuitarChord(project: Project, id: string, patch: GuitarChordPatch): Project {
-  const chords = readGuitarChords(project);
-  const current = chords.find(chord => chord.id === id);
-  if (!current) return project;
-  const symbol = patch.symbol === undefined ? current.symbol : normalizeGuitarChordSymbol(patch.symbol);
-  if (!symbol) throw new RangeError('请填写和弦符号，例如 G、Bm、E7。');
-  let alignment = current.alignment;
-  if (patch.lyricId !== undefined || patch.charOffset !== undefined) {
-    const lyricId = patch.lyricId ?? current.alignment?.lyricId;
-    const charOffset = patch.charOffset ?? current.alignment?.charOffset;
-    const lyric = project.lyrics.find(item => item.id === lyricId);
-    if (!lyric || charOffset === undefined) throw new RangeError('请把和弦对齐到一句已有歌词的某个字上。');
-    const at = lyricCharacterAt(lyric.text, charOffset);
-    if (!at) throw new RangeError('这个位置没有歌词字，和弦没有改动。');
-    alignment = { lyricId: lyric.id, charOffset, token: at.token };
-  }
-  const next: GuitarChord = {
-    ...current,
-    symbol,
-    alignment,
-    proof: 'confirmed',
-    source: 'manual',
-    section: patch.section === undefined ? current.section : (patch.section?.trim().slice(0, 40) || undefined),
-    time: patch.time === undefined ? current.time : (patch.time ?? undefined),
-  };
-  if (next.symbol === current.symbol && next.proof === 'confirmed' && next.source === 'manual' && next.section === current.section && next.time === current.time && sameAlignment(next.alignment, current.alignment)) return project;
-  return { ...project, guitarChords: chords.map(chord => chord.id === id ? next : chord) };
-}
-
-export function confirmGuitarChord(project: Project, id: string): Project {
-  const chords = readGuitarChords(project);
-  const current = chords.find(chord => chord.id === id);
-  if (!current) return project;
-  if (!current.alignment) throw new RangeError('请先把和弦对齐到歌词的某个字上，再确认。');
-  const lyric = project.lyrics.find(item => item.id === current.alignment?.lyricId);
-  const placed = lyric ? placeGuitarChord(lyric, current) : null;
-  if (!placed) throw new RangeError('歌词已经变了，请重新选择对齐的字，再确认。');
-  if (current.proof === 'confirmed' && current.source === 'manual') return project;
-  return { ...project, guitarChords: chords.map(chord => chord.id === id ? { ...chord, proof: 'confirmed' as const, source: 'manual' as const } : chord) };
+/** Use the saved project from import. Do not merge again or invent times. */
+export function projectFromGuitarChordImport(result: GuitarChordImportResult): Project {
+  return normalizeGuitarChords(result.project);
 }
 
 export function deleteGuitarChord(project: Project, id: string): Project {
@@ -427,86 +195,97 @@ export function deleteGuitarChord(project: Project, id: string): Project {
   return { ...project, guitarChords: chords.filter(chord => chord.id !== id) };
 }
 
-export function retargetGuitarChordsAfterSplit(chords: GuitarChord[] | undefined, lyricId: string, splitAt: number, newLyricId: string): GuitarChord[] | undefined {
+/**
+ * A split changes the original lyric text, so the server drops links that stay
+ * on that id. A chord whose character moves into the new lyric keeps that character.
+ * `utf16Split` is the lyric editor caret; guitar offsets count code points.
+ */
+export function retargetGuitarChordsAfterSplit(chords: GuitarChord[] | undefined, lyricId: string, utf16Split: number, originalText: string, newLyricId: string): GuitarChord[] | undefined {
   if (!chords?.length) return chords;
+  const splitAt = codePoints(originalText.slice(0, utf16Split)).length;
   return chords.map(chord => {
-    if (chord.alignment?.lyricId !== lyricId || chord.alignment.charOffset < splitAt) return chord;
-    return { ...chord, alignment: { ...chord.alignment, lyricId: newLyricId, charOffset: chord.alignment.charOffset - splitAt } };
+    if (chord.lyricId !== lyricId || chord.charOffset === null) return chord;
+    if (chord.charOffset >= splitAt) return { ...chord, lyricId: newLyricId, charOffset: chord.charOffset - splitAt };
+    return { ...chord, lyricId: null, charOffset: null };
   });
 }
 
-export function retargetGuitarChordsAfterMerge(chords: GuitarChord[] | undefined, previousId: string, previousLength: number, mergedId: string): GuitarChord[] | undefined {
+/** Merging changes both lyric texts, so both links are released instead of slid onto a different character. */
+export function retargetGuitarChordsAfterMerge(chords: GuitarChord[] | undefined, previousId: string, mergedId: string): GuitarChord[] | undefined {
   if (!chords?.length) return chords;
-  return chords.map(chord => {
-    if (chord.alignment?.lyricId !== mergedId) return chord;
-    return { ...chord, alignment: { ...chord.alignment, lyricId: previousId, charOffset: chord.alignment.charOffset + previousLength } };
-  });
+  return chords.map(chord => chord.lyricId === previousId || chord.lyricId === mergedId ? { ...chord, lyricId: null, charOffset: null } : chord);
 }
 
-export function guitarChordFailureMessage(status: number, body: unknown, rawText = ''): { detail: string; code: string } {
-  const record = body && typeof body === 'object' ? body as Record<string, unknown> : {};
-  const code = typeof record.code === 'string' ? record.code : '';
-  const detail = typeof record.detail === 'string' ? record.detail.trim() : '';
-  if (status === 404 || status === 405) return { detail: GUITAR_CHORD_FAILURES.not_ready, code: 'not_ready' };
-  if (detail) return { detail, code: code || 'parse_error' };
-  if (code in GUITAR_CHORD_FAILURES) return { detail: GUITAR_CHORD_FAILURES[code as keyof typeof GUITAR_CHORD_FAILURES], code };
-  const text = rawText.trim();
-  if (text && !text.startsWith('<') && !text.startsWith('{') && text.length <= 180) return { detail: text, code: 'parse_error' };
-  return { detail: GUITAR_CHORD_FAILURES.parse_error, code: 'parse_error' };
+export function guitarChordFailureDetail(body: unknown, fallback = '和弦谱请求失败，没有改动现有内容。'): string {
+  if (body && typeof body === 'object' && 'detail' in body) {
+    const detail = (body as { detail: unknown }).detail;
+    if (typeof detail === 'string' && detail.trim()) return detail.trim();
+    if (detail !== undefined && detail !== null) return JSON.stringify(detail);
+  }
+  return fallback;
+}
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 }
 
 export function parseGuitarChordImportResult(body: unknown): GuitarChordImportResult {
-  if (!body || typeof body !== 'object' || Array.isArray(body)) throw new GuitarChordImportError(GUITAR_CHORD_FAILURES.parse_error, 'parse_error');
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw new GuitarChordRequestError('和弦谱导入没有返回结果，没有改动现有内容。', 200);
   const record = body as Record<string, unknown>;
-  if (typeof record.importId !== 'string' || !record.importId.trim() || !Array.isArray(record.chords)) {
-    throw new GuitarChordImportError(GUITAR_CHORD_FAILURES.parse_error, 'parse_error');
+  if (!record.project || typeof record.project !== 'object' || Array.isArray(record.project)) {
+    throw new GuitarChordRequestError('和弦谱导入没有返回工程，没有改动现有内容。', 200);
   }
-  const chords: GuitarChordCandidate[] = [];
-  for (const item of record.chords) {
-    if (!item || typeof item !== 'object') continue;
-    const row = item as Record<string, unknown>;
-    const symbol = typeof row.symbol === 'string' ? normalizeGuitarChordSymbol(row.symbol) : null;
-    if (!symbol) continue;
-    chords.push({
-      id: typeof row.id === 'string' && row.id.trim() ? row.id.trim() : undefined,
-      symbol,
-      lyricId: typeof row.lyricId === 'string' && row.lyricId ? row.lyricId : undefined,
-      charOffset: Number.isInteger(row.charOffset) ? row.charOffset as number : undefined,
-      token: typeof row.token === 'string' && row.token ? row.token : undefined,
-      time: typeof row.time === 'number' && Number.isFinite(row.time) ? row.time : undefined,
-      section: typeof row.section === 'string' && row.section.trim() ? row.section.trim().slice(0, 40) : undefined,
-    });
-  }
+  const project = normalizeGuitarChords(record.project as Project);
   return {
-    importId: record.importId.trim(),
-    filename: typeof record.filename === 'string' ? record.filename : undefined,
-    importedAt: typeof record.importedAt === 'string' ? record.importedAt : '',
-    status: 'pending',
-    warning: typeof record.warning === 'string' ? record.warning : undefined,
-    chords,
+    note: typeof record.note === 'string' && record.note.trim() ? record.note : GUITAR_CHORD_IMPORT_NOTE,
+    warnings: stringList(record.warnings),
+    added: readGuitarChords({ guitarChords: record.added }),
+    preservedIds: stringList(record.preservedIds),
+    untimedIds: stringList(record.untimedIds),
+    project,
   };
 }
 
-export async function importGuitarChordPdf(projectId: string, file: File, revision: number, fetchImpl: typeof fetch = globalThis.fetch): Promise<GuitarChordImportResult> {
-  const blocked = rejectChordChartFile(file);
-  if (blocked) throw new GuitarChordImportError(blocked, file.size ? 'not_pdf' : 'empty_file');
-  const body = new FormData();
-  body.append('file', file, file.name);
-  body.append('revision', String(revision));
+export function parseGuitarChordPatchResult(body: unknown): { chord: GuitarChord; project: Project } {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw new GuitarChordRequestError('保存吉他和弦没有返回结果，没有改动现有内容。', 200);
+  const record = body as Record<string, unknown>;
+  const project = record.project && typeof record.project === 'object' && !Array.isArray(record.project) ? normalizeGuitarChords(record.project as Project) : null;
+  const chord = parseStoredGuitarChord(record.chord);
+  if (!project || !chord) throw new GuitarChordRequestError('保存吉他和弦没有返回工程，没有改动现有内容。', 200);
+  return { chord, project };
+}
+
+async function readBody(response: Response): Promise<unknown> {
+  const text = await response.text();
+  if (!text) return null;
+  try { return JSON.parse(text); } catch { return null; }
+}
+
+async function requestJson(url: string, init: RequestInit, fetchImpl: typeof fetch): Promise<unknown> {
   let response: Response;
   try {
-    response = await fetchImpl(GUITAR_CHORD_IMPORT_PATH(projectId), { method: 'POST', credentials: 'include', body });
+    response = await fetchImpl(url, { ...init, credentials: 'include' });
   } catch {
-    throw new GuitarChordImportError(GUITAR_CHORD_FAILURES.network, 'network');
+    throw new GuitarChordRequestError(NETWORK_DETAIL, 0);
   }
-  const text = await response.text();
-  let parsed: unknown = null;
-  if (text) {
-    try { parsed = JSON.parse(text); } catch { parsed = null; }
-  }
-  if (!response.ok) {
-    const failure = guitarChordFailureMessage(response.status, parsed, text);
-    throw new GuitarChordImportError(failure.detail, failure.code);
-  }
-  return parseGuitarChordImportResult(parsed);
+  const body = await readBody(response);
+  if (!response.ok) throw new GuitarChordRequestError(guitarChordFailureDetail(body), response.status);
+  return body;
+}
+
+export async function importGuitarChordPdf(projectId: string, file: File, fetchImpl: typeof fetch = globalThis.fetch): Promise<GuitarChordImportResult> {
+  if (!file.size) throw new GuitarChordRequestError(EMPTY_FILE_DETAIL, 400);
+  const body = new FormData();
+  body.append('file', file, file.name);
+  const payload = await requestJson(GUITAR_CHORD_IMPORT_PATH(projectId), { method: 'POST', body }, fetchImpl);
+  return parseGuitarChordImportResult(payload);
+}
+
+export async function patchGuitarChord(projectId: string, chordId: string, patch: GuitarChordPatchBody, fetchImpl: typeof fetch = globalThis.fetch): Promise<{ chord: GuitarChord; project: Project }> {
+  const payload = await requestJson(GUITAR_CHORD_PATCH_PATH(projectId, chordId), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  }, fetchImpl);
+  return parseGuitarChordPatchResult(payload);
 }

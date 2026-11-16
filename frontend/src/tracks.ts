@@ -129,7 +129,7 @@ export function splitLyric(p: Project, id: string, caret: number, newId: string,
     return [{...a,endOffset:offset,text:text.slice(a.startOffset,offset)},
       {...a,id:`${a.id.slice(0,90)}-split`,lyricId:newId,startOffset:0,endOffset:a.endOffset-offset,text:text.slice(offset,a.endOffset)}];
   });
-  const guitarChords = retargetGuitarChordsAfterSplit(p.guitarChords, id, offset, newId);
+  const guitarChords = retargetGuitarChordsAfterSplit(p.guitarChords, id, offset, text, newId);
   return { ...p, lyricAnchors, lyrics: lyrics.map((item, order) => ({ ...item, order })), ...(p.guitarChords ? { guitarChords } : {}) };
 }
 
@@ -141,7 +141,7 @@ export function mergeLyricPrevious(p: Project, id: string, editedText?: string):
     start: Math.min(previous.start, current.start), end: Math.max(previous.end, current.end), source: 'manual', locked: true });
   const lyricAnchors=(p.lyricAnchors??[]).flatMap(a=>a.lyricId!==id?[a]:
     (editedText??current.text).slice(a.startOffset,a.endOffset)===a.text?[{...a,lyricId:previous.id,startOffset:a.startOffset+previous.text.length,endOffset:a.endOffset+previous.text.length}]:[]);
-  const guitarChords = retargetGuitarChordsAfterMerge(p.guitarChords, previous.id, previous.text.length, id);
+  const guitarChords = retargetGuitarChordsAfterMerge(p.guitarChords, previous.id, id);
   return { ...p, lyricAnchors, lyrics: lyrics.map((item, order) => ({ ...item, order })), ...(p.guitarChords ? { guitarChords } : {}) };
 }
 
