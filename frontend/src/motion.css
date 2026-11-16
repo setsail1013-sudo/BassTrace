@@ -1,4 +1,4 @@
-:root{--motion-fast:140ms;--motion-panel:200ms;--motion-ease:cubic-bezier(.2,.7,.2,1)}
+:root{--motion-fast:170ms;--motion-press:100ms;--motion-panel:210ms;--motion-ease:cubic-bezier(0.22,1,0.36,1)}
 .apple-app button{transition:background-color var(--motion-fast),color var(--motion-fast),border-color var(--motion-fast),box-shadow var(--motion-fast)}
 .apple-app .library-card:hover{box-shadow:0 5px 18px #1d1d1f0b}
 [data-presence="enter"]{animation:surface-in var(--motion-panel) var(--motion-ease)}
@@ -10,8 +10,8 @@
 .chart-display-menu[open] .chart-options{animation:panel-in 180ms var(--motion-ease)}
 @keyframes surface-in{from{opacity:0}to{opacity:1}}
 @keyframes surface-out{to{opacity:0}}
-@keyframes panel-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
-@keyframes panel-out{to{opacity:0;transform:translateY(4px)}}
+@keyframes panel-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@keyframes panel-out{to{opacity:0;transform:translateY(8px)}}
 .performance-notes{background:#fff;border:1px solid #e5e5ea;border-radius:12px;padding:16px 20px;margin:0 0 20px}
 .performance-notes>header{display:flex;align-items:center;justify-content:flex-end;gap:16px;font-size:13px}
 .performance-notes.is-empty{background:none;border:0;padding:0}

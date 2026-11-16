@@ -16,8 +16,8 @@ export function Presence({children}:{children:ReactElement<Record<string,unknown
 export function usePageMotion(nav:string) {
   useEffect(()=>{
     if(matchMedia('(prefers-reduced-motion: reduce)').matches)return;
-    const node=document.querySelector('.home-page,.library-view,.score-workspace');
-    const animation=node?.animate([{opacity:.4},{opacity:1}],{duration:180,easing:'ease-out'});
+    const node=document.querySelector('.ped-paper-body');
+    const animation=node?.animate([{opacity:0,transform:'translateY(8px)'},{opacity:1,transform:'translateY(0)'}],{duration:280,easing:'cubic-bezier(0.22, 1, 0.36, 1)'});
     return()=>animation?.cancel();
   },[nav]);
   useEffect(()=>{
@@ -31,13 +31,13 @@ export function usePageMotion(nav:string) {
         active.get(details)?.animation.cancel();details.open=true;
         const panel=details.querySelector<HTMLElement>('.chart-options');if(!panel){details.open=target;return;}
         panel.inert=!target;
-        const frames=target?[{opacity:0,transform:'translateY(4px)'},{opacity:1,transform:'translateY(0)'}]:[{opacity:1,transform:'translateY(0)'},{opacity:0,transform:'translateY(4px)'}];
-        const animation=panel.animate(frames,{duration:180,easing:'ease-out'});active.set(details,{animation,open:target});
+        const frames=target?[{opacity:0,transform:'translateY(8px)'},{opacity:1,transform:'translateY(0)'}]:[{opacity:1,transform:'translateY(0)'},{opacity:0,transform:'translateY(8px)'}];
+        const animation=panel.animate(frames,{duration:210,easing:'cubic-bezier(0.22, 1, 0.36, 1)'});active.set(details,{animation,open:target});
         animation.onfinish=()=>{details.open=target;panel.inert=false;active.delete(details);};return;
       }
       active.get(details)?.animation.cancel();details.style.overflow='hidden';details.open=true;
       const end=target?details.scrollHeight:summary!.getBoundingClientRect().height+parseFloat(getComputedStyle(details).paddingTop)+parseFloat(getComputedStyle(details).paddingBottom);
-      const animation=details.animate([{height:start+'px'},{height:end+'px'}],{duration:200,easing:'cubic-bezier(.2,.7,.2,1)'});
+      const animation=details.animate([{height:start+'px'},{height:end+'px'}],{duration:210,easing:'cubic-bezier(0.22, 1, 0.36, 1)'});
       active.set(details,{animation,open:target});
       animation.onfinish=()=>{details.open=target;details.style.overflow='';active.delete(details);};
     };
