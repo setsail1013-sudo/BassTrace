@@ -9,6 +9,7 @@ import { SongInfoForm } from './SongInfoForm';
 import { LibraryView, useLibrary } from './LibraryPanel';
 import { adjacentBarTime } from './library';
 import { useEffect, useRef, useState } from 'react';
+import { useFirstEnter } from './first-enter';
 import type { CSSProperties, DragEvent } from 'react';
 import { ThreeTrackScore } from './ThreeTrackScore';
 import { useCommands, useCommandActions, type Command } from './commands';
@@ -383,17 +384,26 @@ function App() {
           <button type="button" className="play-button" title="播放 / 暂停 (Space)" onClick={()=>invoke('audio.play')}>{playing?<Pause size={14} fill="currentColor"/>:<Play size={14} fill="currentColor"/>}</button>
           <div className="ped-time">{formatTime(time)} / {formatTime(p.duration)}</div>
           <div className="ped-seek"><input aria-label="播放位置" type="range" min="0" max={p.duration} step=".05" value={time} onChange={e=>seek(Number(e.target.value))}/></div>
-          <button type="button" className={loopA!==null?'tool is-on':'tool'} title="将当前位置设为循环 A 点 · A" onClick={()=>{setLoopA(time);message(`A 点 ${formatTime(time)}`);}}>A</button>
-          <button type="button" className={loop?'tool is-on':'tool'} title="将当前位置设为循环 B 点 · B" onClick={markLoopB}>B</button>
+          <div className="ped-ab">
+            <button type="button" className={loopA!==null?'tool is-on':'tool'} title="将当前位置设为循环 A 点 · A" onClick={()=>{setLoopA(time);message(`A 点 ${formatTime(time)}`);}}>A</button>
+            <button type="button" className={loop?'tool is-on':'tool'} title="将当前位置设为循环 B 点 · B" onClick={markLoopB}>B</button>
+          </div>
           <div className="ped-speeds">{speeds.map(n=><button type="button" key={n} className={speed===n?'tool is-on':'tool'} onClick={()=>setSpeed(n)}>{speedLabel(n)}</button>)}</div>
-          <label className="ped-volume">音量<input aria-label="主音量" type="range" min="0" max="1" step="any" value={volume} onChange={e=>setVolume(Number(e.target.value))}/></label>
-          <div className="ped-listen">{(['original','bass','backing'] as const).map(id=><button key={id} type="button" aria-pressed={(mix[id]??0)>0} className={(mix[id]??0)>0?'is-on':''} disabled={id==='backing'?(featureRunning(p)||p.audioSource==='uploaded_bass'):!p.stems.some(s=>s.id===id&&s.available)} title={id==='backing'?'Shift+M · 无贝斯伴奏 / 上次试听模式':id==='bass'&&!p.stems.some(s=>s.id==='bass'&&s.available)?'请先完成贝斯分离':'Shift+B 切换原曲 / 贝斯'} onClick={()=>id==='backing'?((mix.backing??0)>0?listenTo('backing'):toggleBacking()):invoke('audio.stem.'+id)}>{id==='original'?'原曲':id==='bass'?'只听贝斯':p.backingAnalysis?.state==='running'?'伴奏生成中…':p.stems.some(s=>s.id==='backing'&&s.available)?'无贝斯伴奏':'生成无贝斯伴奏'}</button>)}</div>
-          <div className="ped-extra">
-            {p.stems.find(s=>s.id==='bass')?.enhancedUrl&&<select aria-label="贝斯音量版本" value={bassEnhanced?'enhanced':'raw'} onChange={e=>{setBassEnhanced(e.target.value==='enhanced');listenTo('bass');}}><option value="enhanced">增强贝斯</option><option value="raw">原始贝斯分轨</option></select>}
-            <button type="button" className={loop?'tool is-on':'tool'} title="整曲循环 / 关闭循环 · R" onClick={()=>toggleLoop()}>循环</button>
-            <button type="button" className="tool" title="回到开头" onClick={()=>seek(loop?.[0]??0)}>开头</button>
-            <button type="button" className="tool" title="上一个小节 · 播放时 ←" aria-label="上一个小节" onClick={()=>invoke('audio.previousBar')}>←</button>
-            <button type="button" className="tool" title="下一个小节 · 播放时 →" aria-label="下一个小节" onClick={()=>invoke('audio.nextBar')}>→</button>
+          <label className="ped-volume"><input aria-label="主音量" type="range" min="0" max="1" step="any" value={volume} onChange={e=>setVolume(Number(e.target.value))}/></label>
+          <div className="ped-tail">
+            <div className="ped-listen">{(['original','bass','backing'] as const).map(id=>{
+              const ready=p.stems.some(s=>s.id===id&&s.available);
+              const generating=id==='backing'&&p.backingAnalysis?.state==='running';
+              const title=id==='backing'?(generating?'伴奏生成中… · Shift+M':ready?'Shift+M · 无贝斯伴奏 / 上次试听模式':'生成无贝斯伴奏 · Shift+M'):id==='bass'&&!ready?'请先完成贝斯分离':'Shift+B 切换原曲 / 贝斯';
+              return <button key={id} type="button" aria-pressed={(mix[id]??0)>0} className={(mix[id]??0)>0?'is-on':''} disabled={id==='backing'?(featureRunning(p)||p.audioSource==='uploaded_bass'):!ready} title={title} onClick={()=>id==='backing'?((mix.backing??0)>0?listenTo('backing'):toggleBacking()):invoke('audio.stem.'+id)}>{id==='original'?'原曲':id==='bass'?'只听贝斯':'无贝斯伴奏'}</button>;
+            })}</div>
+            <div className="ped-extra">
+              {p.stems.find(s=>s.id==='bass')?.enhancedUrl&&<select aria-label="贝斯音量版本" value={bassEnhanced?'enhanced':'raw'} onChange={e=>{setBassEnhanced(e.target.value==='enhanced');listenTo('bass');}}><option value="enhanced">增强</option><option value="raw">原轨</option></select>}
+              <button type="button" className={loop?'tool is-on':'tool'} title="整曲循环 / 关闭循环 · R" onClick={()=>toggleLoop()}>循环</button>
+              <button type="button" className="tool" title="回到开头" onClick={()=>seek(loop?.[0]??0)}>开头</button>
+              <button type="button" className="tool" title="上一个小节 · 播放时 ←" aria-label="上一个小节" onClick={()=>invoke('audio.previousBar')}>←</button>
+              <button type="button" className="tool" title="下一个小节 · 播放时 →" aria-label="下一个小节" onClick={()=>invoke('audio.nextBar')}>→</button>
+            </div>
           </div>
         </div>}
       </main>
@@ -402,7 +412,7 @@ function App() {
       {nav==='library'&&<div className="tray-library"><LibraryView library={library} projects={displayedProjects} currentId={p?.id??''} onOpen={openSong} onDelete={requestDelete} onTrash={()=>setModal('trash')} onTransfer={openTransfer}/></div>}
       <div className="tray-row">
         <span className="tray-lab">本机曲目</span>
-        <div className="tray-songs">{displayedProjects.map((item,index)=><button type="button" key={item.id} className={item.id===p?.id?'tray-item is-on':'tray-item'} onClick={()=>openSong(item.id)}><span className="idx">{String(index+1).padStart(2,'0')}</span><span className="name">{item.title}</span></button>)}{!displayedProjects.length&&<span className="tray-lab">还没有曲目</span>}</div>
+        <div className="tray-songs">{displayedProjects.map((item,index)=><TraySong key={item.id} id={item.id} index={index} on={item.id===p?.id} onOpen={()=>openSong(item.id)} title={item.title}/>)}{!displayedProjects.length&&<span className="tray-lab">还没有曲目</span>}</div>
         <div className="tray-end">
           <button type="button" className="ghost" aria-expanded={importMenu} onClick={()=>setImportMenu(v=>!v)}>{batch.running?'正在导入曲库…':'导入曲库'}</button>
           {importMenu&&<div className="library-import-menu"><button type="button" onClick={()=>openTransfer('audio')}>导入音乐文件</button><button type="button" onClick={()=>openTransfer('restore')}>恢复曲库备份</button></div>}
@@ -428,7 +438,11 @@ function App() {
   </div>;
 }
 
-function ModalPanel({title,close,children,...motion}:{title:string;close:()=>void;children:React.ReactNode;inert?:boolean;'data-presence'?:string;'aria-hidden'?:boolean}){return <div {...motion} className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)close();}}><section className="modal" role="dialog" aria-modal="true" aria-label={title}><header><div><span className="eyebrow">BASSCHART STUDIO</span><h2>{title}</h2></div><button onClick={close} title="关闭"><X size={20}/></button></header>{children}</section></div>;}
+function TraySong({id,index,on,onOpen,title}:{id:string;index:number;on:boolean;onOpen:()=>void;title:string}){
+  const enter=useFirstEnter('tray:'+id);
+  return <button type="button" className={'tray-item'+(on?' is-on':'')+(enter?' tray-enter':'')} onClick={onOpen}><span className="idx">{String(index+1).padStart(2,'0')}</span><span className="name">{title}</span></button>;
+}
+function ModalPanel({title,close,children,...motion}:{title:string;close:()=>void;children:React.ReactNode;inert?:boolean;'data-presence'?:string;'aria-hidden'?:boolean}){return <div {...motion} className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)close();}}><section className="modal" role="dialog" aria-modal="true" aria-label={title}><header><h2>{title}</h2><button onClick={close} title="关闭"><X size={20}/></button></header>{children}</section></div>;}
 function GridForm({p,onApply}:{p:Project;onApply:(p:Project)=>void}) {
   const [bpm,setBpm]=useState(p.bpm),[meter,setMeter]=useState(p.meter),[offset,setOffset]=useState(p.offset);
   const [key,setKey]=useState(p.key),[originalKey,setOriginalKey]=useState(p.originalKey);
