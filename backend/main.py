@@ -23,6 +23,8 @@ from .models import Analysis, AnalyzeRequest, KeyAnalysis, LyricAlignment, Lyric
 from .project_features import router as features_router, assert_idle, apply_key
 from .timeline import beat_to_time, time_to_beat
 from .pdf_export import PdfExportRequest, PdfUnavailable, render_pdf, capabilities as pdf_capabilities
+from .guitar_chords import router as guitar_chord_router
+from .chord_pdf import capabilities as chord_pdf_capabilities
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -59,6 +61,7 @@ app.include_router(features_router)
 app.include_router(folders_router)
 app.include_router(transfer_router)
 app.include_router(accounts_router)
+app.include_router(guitar_chord_router)
 app.add_exception_handler(AccountHTTPError, account_http_error)
 app.add_middleware(ArchiveUploadLimit)
 # Credentialed cookies are for the optional local account on 127.0.0.1 / localhost.
@@ -105,7 +108,9 @@ def export_pdf(project_id: str, request: PdfExportRequest):
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "2.1.0", "capabilities": {**audio.capabilities(), "pdf": pdf_capabilities()}}
+    return {"status": "ok", "version": "2.1.0", "capabilities": {
+        **audio.capabilities(), "pdf": pdf_capabilities(), "guitarChordPdf": chord_pdf_capabilities(),
+    }}
 
 
 @app.get("/api/projects", response_model=list[Project])

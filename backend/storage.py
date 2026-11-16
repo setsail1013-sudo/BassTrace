@@ -184,6 +184,11 @@ def save_user_edit(old: Project, new: Project) -> Project:
                         note.notation = previous.notation.model_copy(deep=True) if previous.notation else None
                     elif note.notation is not None and previous.notation is not None:
                         preserve_omitted_fields(previous.notation, note.notation)
+        if "guitarChords" not in new.model_fields_set:
+            # A client that does not know the guitar chart must not wipe it.
+            new.guitarChords = [chord.model_copy(deep=True) for chord in old.guitarChords]
+        release_stale_guitar_links(old, new)
+        new.validate_guitar_chords()
         # Duration is server-owned; validate against the actual audio rather than
         # a submitted longer duration before writing any edit metadata.
         new.duration = old.duration
@@ -262,6 +267,22 @@ def save_user_edit(old: Project, new: Project) -> Project:
         write_json(project_dir(old.id) / "edits.json", flags)
         save(new)
         return new
+
+
+def release_stale_guitar_links(old: Project, new: Project) -> None:
+    """Unlink a guitar chord when its lyric text changed. Keep the snapped time."""
+    previous = {lyric.id: lyric.text for lyric in old.lyrics}
+    current = {lyric.id: lyric for lyric in new.lyrics}
+    for chord in new.guitarChords:
+        if chord.lyricId is None:
+            continue
+        lyric = current.get(chord.lyricId)
+        if lyric is None or chord.charOffset is None or chord.charOffset >= len(lyric.text):
+            chord.lyricId = None
+            chord.charOffset = None
+        elif chord.lyricId in previous and previous[chord.lyricId] != lyric.text:
+            chord.lyricId = None
+            chord.charOffset = None
 
 
 def preserve_omitted_fields(old, new) -> None:
