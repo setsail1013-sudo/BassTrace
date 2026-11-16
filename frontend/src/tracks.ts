@@ -1,4 +1,5 @@
 /** Independent, immutable editing operations for the three score tracks. */
+import { retargetGuitarChordsAfterMerge, retargetGuitarChordsAfterSplit } from './guitar-chords';
 import { beatsPerBar, displaySections, positionToTime, timeToPosition, type Lyric, type ManualFill, type ManualFillNote, type Project } from './music.ts';
 import { cleanFillNotation } from './fill-techniques';
 
@@ -128,7 +129,8 @@ export function splitLyric(p: Project, id: string, caret: number, newId: string,
     return [{...a,endOffset:offset,text:text.slice(a.startOffset,offset)},
       {...a,id:`${a.id.slice(0,90)}-split`,lyricId:newId,startOffset:0,endOffset:a.endOffset-offset,text:text.slice(offset,a.endOffset)}];
   });
-  return { ...p, lyricAnchors, lyrics: lyrics.map((item, order) => ({ ...item, order })) };
+  const guitarChords = retargetGuitarChordsAfterSplit(p.guitarChords, id, offset, newId);
+  return { ...p, lyricAnchors, lyrics: lyrics.map((item, order) => ({ ...item, order })), ...(p.guitarChords ? { guitarChords } : {}) };
 }
 
 export function mergeLyricPrevious(p: Project, id: string, editedText?: string): Project {
@@ -139,7 +141,8 @@ export function mergeLyricPrevious(p: Project, id: string, editedText?: string):
     start: Math.min(previous.start, current.start), end: Math.max(previous.end, current.end), source: 'manual', locked: true });
   const lyricAnchors=(p.lyricAnchors??[]).flatMap(a=>a.lyricId!==id?[a]:
     (editedText??current.text).slice(a.startOffset,a.endOffset)===a.text?[{...a,lyricId:previous.id,startOffset:a.startOffset+previous.text.length,endOffset:a.endOffset+previous.text.length}]:[]);
-  return { ...p, lyricAnchors, lyrics: lyrics.map((item, order) => ({ ...item, order })) };
+  const guitarChords = retargetGuitarChordsAfterMerge(p.guitarChords, previous.id, previous.text.length, id);
+  return { ...p, lyricAnchors, lyrics: lyrics.map((item, order) => ({ ...item, order })), ...(p.guitarChords ? { guitarChords } : {}) };
 }
 
 function checkLines(lines: number): asserts lines is 0 | 1 | 2 {
