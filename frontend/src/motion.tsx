@@ -16,8 +16,8 @@ export function Presence({children}:{children:ReactElement<Record<string,unknown
 export function usePageMotion(nav:string) {
   useEffect(()=>{
     if(matchMedia('(prefers-reduced-motion: reduce)').matches)return;
-    const node=document.querySelector('.ped-paper-body');
-    const animation=node?.animate([{opacity:0,transform:'translateY(8px)'},{opacity:1,transform:'translateY(0)'}],{duration:280,easing:'cubic-bezier(0.22, 1, 0.36, 1)'});
+    const node=document.querySelector('.home-page,.library-view,.score-workspace');
+    const animation=node?.animate([{opacity:.4},{opacity:1}],{duration:180,easing:'ease-out'});
     return()=>animation?.cancel();
   },[nav]);
   useEffect(()=>{

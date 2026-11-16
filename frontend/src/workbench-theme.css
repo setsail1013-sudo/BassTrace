@@ -1,0 +1,236 @@
+/* Navy / warm theme for the sidebar, top bar, and card workbench.
+   Layout stays in apple.css and library.css. Score inks stay in score-style.css. */
+:root {
+  --page: #F3F1EC;
+  --paper: #FFFCF7;
+  --rail: #EFEBE3;
+  --ink: #1D1D1F;
+  --muted: #6E6E73;
+  --line: #D9D4CB;
+  --accent: #0B2756;
+  --accent-hover: #163A70;
+  --accent-pressed: #081C40;
+  --accent-ice: #ACD4F5;
+  --ice-wash: rgba(172, 212, 245, 0.28);
+  --font: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  color: var(--ink);
+  background: var(--page);
+  font-family: var(--font);
+}
+
+html, body, #root, button, input, textarea, select,
+.brand, .chord, .sheet-meta strong, .home-intro h1, .sheet-header h2, .boot h1, .empty-library h1 {
+  font-family: var(--font);
+}
+html, body, #root { background: var(--page); color: var(--ink); }
+body { font-size: 14px; }
+
+button:hover:not(:disabled) { color: var(--accent); }
+button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 3px;
+}
+input[type=range], input[type=checkbox], progress { accent-color: var(--accent); }
+
+.app.apple-app, .workspace, .boot, .empty-library { background: var(--page); color: var(--ink); }
+.apple-app .sidebar {
+  background: var(--rail); border-right: 1px solid var(--line); color: var(--ink);
+}
+.apple-app .brand, .apple-app .window-title, .song-info h1, .page-heading h1, .home-intro h1 { color: var(--ink); }
+.apple-app .sidebar nav > button { color: var(--muted); }
+.apple-app .sidebar nav > button:hover { background: rgba(11, 39, 86, 0.04); color: var(--accent); }
+.apple-app .sidebar nav > button.active,
+.apple-app .sidebar nav > button.active:hover {
+  background: var(--ice-wash); color: var(--accent);
+}
+.apple-app .topbar {
+  background: var(--page); border-bottom: 1px solid var(--line); color: var(--ink);
+}
+.apple-app .transport {
+  background: color-mix(in srgb, var(--rail) 92%, transparent);
+  border-top: 1px solid var(--line); color: var(--ink);
+  backdrop-filter: blur(16px);
+}
+.apple-app .transport-song strong, .apple-app .transport-controls > button { color: var(--ink); }
+.apple-app .transport-song small, .apple-app .transport-seek, .apple-app .transport-extra > button,
+.apple-app .transport-extra > svg, .apple-app .mini-art { color: var(--muted); }
+.apple-app .mini-art { background: var(--paper); border: 1px solid var(--line); }
+.apple-app .play-button, .primary {
+  background: var(--accent); border-color: var(--accent); color: #fff;
+}
+.apple-app .play-button { color: #fff !important; }
+.primary:hover:not(:disabled), .apple-app .play-button:hover:not(:disabled) {
+  background: var(--accent-hover); border-color: var(--accent-hover); color: #fff;
+}
+.primary:active:not(:disabled), .apple-app .play-button:active:not(:disabled) {
+  background: var(--accent-pressed); border-color: var(--accent-pressed); color: #fff;
+}
+.apple-app .loop-button.active, .apple-app .transport-extra > button.active { color: var(--accent) !important; }
+.secondary, .apple-app .analyze-button {
+  background: var(--paper); border: 1px solid var(--line); color: var(--ink);
+}
+.secondary:hover:not(:disabled), .apple-app .analyze-button:hover:not(:disabled) {
+  background: var(--ice-wash); border-color: var(--accent); color: var(--accent);
+}
+.apple-app .history-button, .apple-app .save-state, .song-caption, .song-info p, .metadata,
+.metadata > button > span, .metadata > div > span, .metadata-end { color: var(--muted); }
+.apple-app .save-state span { background: var(--accent); box-shadow: none; }
+.apple-app .save-state.unsaved, .apple-app .save-state.unsaved span { color: #8A4B2F; }
+.apple-app .save-state.unsaved span { background: #8A4B2F; }
+.apple-app .metadata strong, .apple-app .metadata .transpose { color: var(--ink); }
+.apple-app .metadata .transpose { background: var(--paper); border-color: var(--line); }
+.apple-app .metadata .transpose:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+
+.chart-panel, .audio-panel, .import-zone, .recent-projects, .library-song-list,
+.sheet, .score-row, .modal, .account-sheet, .command-panel, .listen-dock,
+.library-transfer, .feature-controls, .lyric-alignment {
+  background: var(--paper); border-color: var(--line); color: var(--ink);
+}
+.import-zone.dragging { background: var(--ice-wash); border-color: var(--accent); }
+.import-zone > svg, .import-file, .text-action, .stem-download,
+.score-notice button, .analysis-error button, .score-appearance-controls > button,
+.account-switch button, .account-sheet header > button, .account-user-line > button,
+.account-back, .lyric-alignment .la-kicker, .lyric-alignment .la-button,
+.lyric-alignment .la-small-action, .lyric-alignment a {
+  color: var(--accent);
+}
+.import-file { background: var(--ice-wash); }
+.home-intro > p, .import-zone p, .material-ready, .recent-projects > div > span,
+.recent-projects small, .page-heading p, .audio-heading > span:first-child, .audio-caption {
+  color: var(--muted);
+}
+.import-zone h2, .recent-projects h2, .recent-projects > button > span:first-child { color: var(--ink); }
+.recent-projects > button { border-bottom-color: var(--line); color: var(--muted); }
+.recent-projects > button:hover { color: var(--accent); }
+
+.apple-app .waveform { background: transparent; }
+.apple-app .wave-bars i { background: #C8C4BC; border-radius: 1px; transition: none !important; animation: none !important; }
+.apple-app .wave-bars i.heard { background: var(--accent); }
+.apple-app .playhead, .apple-app .score-playhead {
+  background: var(--accent); box-shadow: none; transition: none !important; animation: none !important;
+}
+.apple-app .audio-panel .playhead::before {
+  display: block; content: ""; position: absolute; top: -3px; left: 50%; transform: translateX(-50%);
+  width: 7px; height: 7px; border-radius: 50%; background: var(--accent-ice); box-shadow: 0 0 0 2px var(--accent);
+}
+.apple-app .score-playhead::before { display: none; }
+.apple-app .loop-region { background: var(--ice-wash); border-color: var(--accent); }
+.apple-app .bar-current {
+  position: absolute; top: -29px; bottom: 0; background: var(--ice-wash);
+  pointer-events: none; z-index: 0; transition: none !important; animation: none !important;
+}
+.apple-app .bar-current::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--accent);
+}
+.apple-app .track-grid > .row-bar-lines,
+.apple-app .track-grid > .score-playhead,
+.apple-app .track-grid > .edit-cursor,
+.apple-app .track-grid > .chord-track,
+.apple-app .track-grid > .manual-fill-track,
+.apple-app .track-grid > .editable-lyric-track { z-index: 1; }
+.apple-app .score-row { border-color: var(--line); background: var(--paper); }
+.apple-app .score-row.playing { background: var(--paper); }
+.apple-app .bar-ruler.is-current .bar-number { color: var(--accent); font-weight: 650; }
+.apple-app .row-bar-lines i { background: var(--line); }
+.view-tabs { background: var(--rail); }
+.view-tabs button.active { background: var(--paper); color: var(--ink); }
+.chart-toolbar { border-bottom-color: var(--line); }
+.chart-options > button:hover, .chart-options > button.active {
+  background: var(--ice-wash); color: var(--accent);
+}
+.chart-display-menu .chart-options, .chart-options select {
+  background: var(--paper); border-color: var(--line); color: var(--ink);
+}
+.section-block { background: var(--paper); border-color: var(--line); color: var(--ink); }
+.section-block.current { background: var(--ice-wash); border-color: var(--accent); color: var(--accent); }
+.analysis-progress, .score-notice {
+  background: var(--ice-wash); border-color: var(--accent-ice); color: var(--accent);
+}
+.analysis-progress progress { accent-color: var(--accent); }
+.lyrics-needed { color: var(--muted); border-bottom-color: var(--line); }
+
+.listen-dock { box-shadow: 0 8px 28px rgba(11, 39, 86, 0.08); }
+.listen-dock > strong { color: var(--ink); }
+.listen-dock > button, .listen-dock select, .bar-jump button {
+  background: var(--page); border-color: var(--line); color: var(--ink);
+}
+.listen-dock > button.active, .listen-dock > button.active:hover {
+  color: var(--accent); background: var(--ice-wash); border-color: var(--accent);
+}
+.listen-dock > small { color: var(--muted); }
+
+.playlist-nav > button.active, .library-classifications > button.active,
+.sidebar-song-row .selected, .library-song-row.current {
+  background: var(--ice-wash); color: var(--accent);
+}
+.library-song-list, .library-song-row { border-color: var(--line); }
+.library-search, .sidebar-library select, .playlist-create input, .library-import-menu {
+  background: var(--paper); border-color: var(--line); color: var(--ink);
+}
+.library-import-menu button:hover, .command-list > button.active, .command-list > button:hover {
+  background: var(--ice-wash); color: var(--accent);
+}
+.library-caption, .sidebar-song-row small, .library-group-header > button { color: var(--muted); }
+
+.modal-backdrop, .account-layer, .command-backdrop { background: rgba(11, 39, 86, 0.24); }
+.modal, .account-sheet, .command-panel {
+  background: var(--paper); color: var(--ink); border: 1px solid var(--line);
+  box-shadow: 0 24px 60px rgba(11, 39, 86, 0.08);
+}
+.modal h2, .account-sheet h2, .command-panel > header { color: var(--ink); }
+.modal-description, .quiet-hint, .account-note, .command-panel small, .command-panel kbd, .command-panel > footer {
+  color: var(--muted);
+}
+.modal label > input:not([type=checkbox]), .modal label > select, .modal label > textarea, .lyrics-input,
+.account-sheet form input, .command-panel > input {
+  background: var(--page); border-color: var(--line); color: var(--ink);
+}
+.export-grid button { background: var(--page); border-color: var(--line); color: var(--ink); }
+.export-grid button:hover { background: var(--ice-wash); color: var(--accent); }
+.export-grid svg, .bpm-options > button, .form-tabs > button.active { color: var(--accent); }
+.form-tabs > button.active, .bpm-options > button { background: var(--ice-wash); }
+.toast {
+  background: var(--paper); color: var(--ink); border: 1px solid var(--line);
+  box-shadow: 0 16px 40px rgba(11, 39, 86, 0.08);
+}
+.toast svg { color: var(--accent); }
+.busy-overlay { background: rgba(243, 241, 236, 0.82); color: var(--accent); }
+.account-entry button { color: var(--ink); }
+.account-entry button:hover:not(:disabled) { background: var(--ice-wash); color: var(--accent); }
+.account-entry .account-name { color: var(--ink); }
+.account-sheet .primary, .account-sheet .primary:hover:not(:disabled), .account-sheet .primary:active:not(:disabled) {
+  color: #fff;
+}
+.account-sheet .primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+.account-sheet .primary:active:not(:disabled) { background: var(--accent-pressed); border-color: var(--accent-pressed); }
+
+.lyric-alignment .la-primary, .lyric-alignment .la-primary:hover:not(:disabled) {
+  background: var(--accent); border-color: var(--accent); color: #fff; filter: none;
+}
+.lyric-alignment .la-primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+.lyric-alignment .la-primary:active:not(:disabled) { background: var(--accent-pressed); border-color: var(--accent-pressed); }
+.lyric-alignment .la-secondary { background: transparent; border-color: var(--line); color: var(--ink); }
+.lyric-alignment .la-heading h2 { color: var(--ink); }
+.lyric-alignment .la-heading p, .lyric-alignment .la-note, .lyric-alignment .la-summary { color: var(--muted); }
+
+.fill-editor-panel, .fill-tools, .fill-technique-tools, .fill-input-box {
+  background: var(--paper); border-color: var(--line);
+}
+.fill-tools > span, .fill-input-box button { color: var(--accent); }
+.fill-input-box { border-color: var(--accent-ice); }
+.inline-lyric-editor, .manual-fill-note:focus-visible, .track-lyric:focus-visible, .chord:focus-visible {
+  outline-color: var(--accent);
+}
+.three-track-score [data-selected="true"] { outline-color: var(--accent-ice); }
+
+@media (prefers-reduced-motion: reduce) {
+  .apple-app, .apple-app *, .apple-app *::before, .apple-app *::after,
+  .command-backdrop, .command-backdrop *, .modal-backdrop, .modal-backdrop *,
+  .account-layer, .account-layer * {
+    animation: none !important; transition: none !important; scroll-behavior: auto !important;
+  }
+}
+
+@media print {
+  .bar-current { display: none !important; }
+  html, body, .app, .workspace, .sheet, .score-row, .chart-panel { background: #fff !important; }
+}
