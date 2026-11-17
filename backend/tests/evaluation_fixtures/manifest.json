@@ -1,0 +1,24 @@
+{
+  "protocol": "basstrace-p0-eval",
+  "protocolVersion": "1",
+  "authorization": {
+    "holder": "公式样例",
+    "scope": "仓库内的合成公式样例，不是歌曲授权，不能作为准确率或效率结论。",
+    "grantedOn": "2026-01-01",
+    "expiresOn": "2027-01-01",
+    "reference": "example-not-a-song",
+    "localOnly": true,
+    "redistributionAllowed": false,
+    "coversTrackIds": ["example01"]
+  },
+  "tracks": [
+    {
+      "id": "example01",
+      "title": "合成公式样例，不是歌曲",
+      "language": "zh",
+      "durationSeconds": 5,
+      "audioRelativePath": "audio/mix.wav",
+      "hasGoldLabels": true
+    }
+  ]
+}

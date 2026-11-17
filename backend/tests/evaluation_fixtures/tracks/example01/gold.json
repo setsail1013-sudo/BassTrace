@@ -1,0 +1,24 @@
+{
+  "protocol": "basstrace-p0-eval",
+  "protocolVersion": "1",
+  "trackId": "example01",
+  "syntheticExample": true,
+  "tempo": {"bpm": 120, "meter": "4/4", "offsetSeconds": 0, "downbeats": [0, 2, 4]},
+  "sections": [{"name": "副歌", "start": 0, "end": 4}],
+  "chords": [
+    {"start": 0, "end": 2, "label": "C"},
+    {"start": 2, "end": 4, "label": "Am"}
+  ],
+  "lyrics": [
+    {"text": "城市的灯", "start": 0, "end": 2, "granularity": "line"},
+    {"text": "慢慢亮起", "start": 2, "end": 4, "granularity": "line"}
+  ],
+  "notes": [
+    {"start": 0, "end": 0.5, "midi": 40},
+    {"start": 1, "end": 1.5, "midi": 43}
+  ],
+  "bassPitches": [
+    {"start": 0, "end": 2, "pitchClass": 4},
+    {"start": 2, "end": 4, "pitchClass": 9}
+  ]
+}

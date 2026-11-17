@@ -1,5 +1,12 @@
 # BassTrace 验证报告
 
+## 2026-11-10：P0 评估协议（没有实测准确率）
+
+- 新增 [EVALUATION.md](EVALUATION.md) 和本地入口 `python -m backend.evaluation.runner`。协议写明 30 首授权曲库、5–10 首完整精标、授权字段、分离听感、BPM 与小节、段落边界、和弦、歌词时间、歌唱识别字错误率、音符 F1、贝斯音级、人工校正时间和处理耗时要如何计算，以及硬件、系统、Python、Demucs/HTDemucs 与 faster-whisper 的模型名、版本和参数如何记录。
+- 未提供仓库外曲库时，该入口的状态是 `not_evaluated`，各项没有数值，退出码为 3。这不是准确率通过。
+- 本变更没有下载 Demucs 或 faster-whisper 权重，没有对真实歌曲运行分离或歌唱识别，没有把混音当作贝斯音名，没有改写用户工程，也没有把音频或曲库放进仓库。
+- 30 首授权测试曲库和 5–10 首人工精标基准仍然没有执行。下文的只读分轨冒烟、合成样本、界面测试和解释器检查都不能改写成准确率。此前 tiny 权重未能下载、因而没有真实歌唱识别结果的记录仍然有效。
+
 ## 2026-10-31：BassTrace 品牌、曲库文件夹与完整迁移
 
 - 品牌改为 BassTrace，第二款四弦图标改为蓝色；网页、favicon、移动图标、互动 HTML、启动入口和桌面快捷方式更新，旧工程目录与浏览器键保留。修复桌面启动从 PowerShell 7 环境调用 Windows PowerShell 时 `Get-FileHash` 不可用的问题，改为 .NET 流式哈希；重复启动复用现有服务。
@@ -80,7 +87,7 @@
 
 最后补齐首拍前的弱起分析，并修复约186ms的分析窗口起点空缺。持续低音在短弱起窗口中因有效帧不足被漏掉，现在以零填充将分析帧中心覆盖到音频零秒；4/4与非均匀6/8测试均通过，静音分段回归继续通过。后端验证命令为 `.venv\Scripts\python.exe -m unittest backend.tests.test_bass_score_upgrade backend.tests.test_bass_analysis backend.tests.test_manual_fills backend.tests.test_backend backend.tests.test_demucs_runtime`。其中模拟分离失败会输出预期错误日志，最终68项结果为OK。
 
-真实分轨证据：[只读检查记录](verification/bass-audio-smoke-results.json)。该检查复用了现有 Demucs 分轨，未重新执行分离，也没有人工标注对照，因此不代表本轮测得分离质量或音名准确率。临时增强文件检查后自动清理。
+真实分轨证据：[只读检查记录](verification/bass-audio-smoke-results.json)。该检查复用了现有 Demucs 分轨，未重新执行分离，也没有人工标注对照，因此不代表本轮测得分离质量或音名准确率。临时增强文件检查后自动清理。准确率指标的定义见 [EVALUATION.md](EVALUATION.md)。这次只读检查仍然不是其中任何一项实测。
 
 页面证据：[9组检查](verification/bass-upgrade-ui-results.json)、[桌面](verification/bass-upgrade-desktop.png)、[手机](verification/bass-upgrade-mobile.png)。离线证据：[检查记录](verification/bass-style-export-results.json)、[独立谱](verification/bass-style-portable.html)。打印文件：`output/pdf/bass-upgrade-{portrait,landscape}.pdf` 与 `output/pdf/bass-style-portable-{a4,landscape,monochrome}.pdf`，对应逐页 PNG 位于 `verification/`。
 
@@ -206,7 +213,7 @@ node scripts/verify-lyric-alignment.mjs
 
 独立 HTML 的 A4 打印为附加检查，与工作台正式 PDF 是不同导出界面；不把其版式或页数视为正式 PDF 外观一致性证据。
 
-目前未完成 30 首授权测试曲库及 5–10 首人工精标基准；不能给出真实和弦准确率、歌唱识别准确率、歌词时间误差、贝斯音符 F1 或备曲效率提升数字。界面与数据规则回归通过应与真实模型精度验收分别判断。
+目前未完成 30 首授权测试曲库及 5–10 首人工精标基准；不能给出真实和弦准确率、歌唱识别准确率、歌词时间误差、贝斯音符 F1 或备曲效率提升数字。界面与数据规则回归通过应与真实模型精度验收分别判断。评估协议和本地报告入口见 [EVALUATION.md](EVALUATION.md)。该入口没有改变这段结论：上述基准仍然没有运行。
 
 ## V0.1 历史验证
 

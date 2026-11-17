@@ -1,0 +1,61 @@
+{
+  "protocol": "basstrace-p0-eval",
+  "protocolVersion": "1",
+  "trackId": "example01",
+  "separation": {
+    "status": "completed",
+    "error": null,
+    "usedMixdownAsBass": false,
+    "stems": {"bass": true, "drums": true, "vocals": true, "other": true},
+    "provenance": {
+      "implementation": "demucs",
+      "modelName": "htdemucs",
+      "modelVersion": "example",
+      "parameters": {"device": "cpu"}
+    }
+  },
+  "wallClock": {
+    "separationSeconds": 10,
+    "structureSeconds": 2,
+    "harmonySeconds": 3,
+    "bassAnalysisSeconds": 4,
+    "lyricRecognitionSeconds": 5
+  },
+  "modelRun": {
+    "recordedAt": "2026-01-02T00:00:00+00:00",
+    "cpu": "example-cpu",
+    "ramBytes": 1024,
+    "gpu": null,
+    "os": "example-os",
+    "python": "3.12.0"
+  },
+  "tempo": {"bpm": 60, "meter": "4/4", "offsetSeconds": 0.1, "downbeats": [0.1, 2.1, 4.4]},
+  "sections": [{"name": "候选段落 1", "start": 0.5, "end": 4.5}],
+  "chords": [
+    {"start": 0, "end": 2, "label": "C", "confidence": 0.99},
+    {"start": 2, "end": 4, "label": "A", "confidence": 0.11}
+  ],
+  "lyrics": [
+    {"text": "城市的灯", "start": 0.2, "end": 2, "granularity": "line", "confidence": 0.99},
+    {"text": "慢慢亮", "start": 2.2, "end": 3.5, "granularity": "line", "confidence": 0.11}
+  ],
+  "notes": [
+    {"start": 0.02, "end": 0.4, "midi": 40, "confidence": 0.99},
+    {"start": 1, "end": 1.2, "midi": 45, "confidence": 0.11},
+    {"start": 2, "end": 2.2, "midi": 40, "confidence": 0.11}
+  ],
+  "bassPitches": [
+    {"start": 0, "end": 2, "pitchClass": 4, "confidence": 0.99},
+    {"start": 2, "end": 3, "pitchClass": 9, "confidence": 0.11}
+  ],
+  "structureProvenance": {"implementation": "in-process", "modelName": "envelope", "modelVersion": "example", "parameters": {}},
+  "harmonyProvenance": {"implementation": "in-process-chroma", "modelName": "chroma-template", "modelVersion": "example", "parameters": {}},
+  "bassProvenance": {"implementation": "in-process", "modelName": "pitch-class", "modelVersion": "example", "parameters": {}},
+  "noteProvenance": {"implementation": "in-process", "modelName": "pitch", "modelVersion": "example", "parameters": {}},
+  "lyricProvenance": {
+    "implementation": "faster-whisper",
+    "modelName": "tiny",
+    "modelVersion": "example",
+    "parameters": {"device": "cpu", "computeType": "int8"}
+  }
+}

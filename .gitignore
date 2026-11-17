@@ -24,6 +24,10 @@ docs/verification/
 output/
 backups/
 
+# Local P0 accuracy reports stay on this computer. They are not benchmark publications.
+eval-report.json
+*.eval-report.json
+
 # Private media, model weights, archives and credentials stay on this computer.
 *.wav
 *.mp3
